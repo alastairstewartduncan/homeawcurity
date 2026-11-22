@@ -73,10 +73,10 @@ numbers and dashes only).
 
 ## 2. Install the Android app
 
-1. Open this repository's **Actions** tab on GitHub, open the latest **Build** run, and download
-   **HomeCamera-apk** at the bottom. Unzip it to get the `.apk`.
+1. On your phone, open this repository's **Releases** on GitHub (right-hand side of the main
+   page), open **Home Camera (latest build)** and download **HomeCamera.apk**.
    (Or open the `android` folder in Android Studio and build it yourself.)
-2. Copy the `.apk` to your phone and open it. Allow installing from that source when asked.
+2. Open the downloaded file. Allow installing from that source when asked.
 3. Open **Home Camera**, enter the PC's address (for example `192.168.1.20:8080`) and sign in with
    your password. Allow notifications, and allow it to run without battery restrictions so alerts
    arrive while the phone is asleep.

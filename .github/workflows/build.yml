@@ -20,6 +20,8 @@ jobs:
 
   android-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -30,7 +32,15 @@ jobs:
       - name: Build APK
         working-directory: android
         run: ./gradlew --no-daemon assembleRelease
-      - uses: actions/upload-artifact@v4
-        with:
-          name: HomeCamera-apk
-          path: android/app/build/outputs/apk/release/*.apk
+      # Published as a release download rather than a build artifact, so it doesn't use
+      # the account's artifact storage and the link stays the same.
+      - name: Publish APK to the "latest" release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk HomeCamera.apk
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "Home Camera (latest build)" \
+              --notes "Android app built from the newest code. Download HomeCamera.apk onto your phone and open it."
+          gh release upload latest HomeCamera.apk --clobber

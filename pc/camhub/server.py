@@ -1,0 +1,263 @@
+"""The web server behind the PC viewer and the Android app."""
+import asyncio
+import json
+import logging
+import os
+import queue
+import time
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+
+from . import auth
+
+log = logging.getLogger("camhub.server")
+STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+COOKIE = "camhub_token"
+
+EDITABLE_MOTION = {
+    "sensitivity": (int, 1, 10),
+    "min_area_percent": (float, 0.05, 50),
+    "person_only": (bool, None, None),
+    "person_confidence": (float, 0.2, 0.95),
+    "pre_seconds": (int, 0, 30),
+    "post_seconds": (int, 3, 120),
+    "max_clip_minutes": (int, 1, 60),
+}
+
+
+def create_app(hub):
+    app = FastAPI(title="Home Camera", docs_url=None, redoc_url=None, openapi_url=None)
+    limiter = auth.LoginLimiter()
+    config = hub.config
+
+    def token_of(request):
+        h = request.headers.get("authorization", "")
+        if h.lower().startswith("bearer "):
+            return h[7:].strip()
+        return request.cookies.get(COOKIE)
+
+    def authed(request):
+        return auth.check_token(config.server["secret"], token_of(request) or "")
+
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        path = request.url.path
+        public = path in ("/login", "/api/login", "/favicon.svg", "/manifest.json") or path.startswith("/static/")
+        if not public and not authed(request):
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "login required"}, status_code=401)
+            return RedirectResponse("/login")
+        response = await call_next(request)
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        return response
+
+    # ---- pages ---------------------------------------------------------------
+
+    @app.get("/")
+    def index():
+        return FileResponse(os.path.join(STATIC, "index.html"), headers={"Cache-Control": "no-cache"})
+
+    @app.get("/login")
+    def login_page():
+        return FileResponse(os.path.join(STATIC, "login.html"), headers={"Cache-Control": "no-cache"})
+
+    @app.get("/favicon.svg")
+    def favicon():
+        return FileResponse(os.path.join(STATIC, "favicon.svg"))
+
+    @app.get("/static/{name}")
+    def static(name: str):
+        p = os.path.join(STATIC, os.path.basename(name))
+        if not os.path.isfile(p):
+            raise HTTPException(404)
+        return FileResponse(p, headers={"Cache-Control": "no-cache"})
+
+    # ---- login ---------------------------------------------------------------
+
+    @app.post("/api/login")
+    async def login(request: Request):
+        ip = request.client.host if request.client else "?"
+        if limiter.blocked(ip):
+            return JSONResponse({"error": "Too many attempts. Try again in 15 minutes."}, status_code=429)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        password = str(body.get("password", ""))
+        stored = config.server.get("password_hash")
+        if not stored or not auth.check_password(password, stored):
+            limiter.failed(ip)
+            time.sleep(0.5)
+            return JSONResponse({"error": "Wrong password"}, status_code=401)
+        limiter.succeeded(ip)
+        token = auth.make_token(config.server["secret"])
+        resp = JSONResponse({"token": token})
+        resp.set_cookie(COOKIE, token, max_age=365 * 86400, httponly=True, samesite="strict",
+                        secure=bool(config.server.get("https_cert")))
+        return resp
+
+    @app.post("/api/logout")
+    def logout():
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie(COOKIE)
+        return resp
+
+    # ---- status and cameras --------------------------------------------------
+
+    @app.get("/api/status")
+    def status():
+        return {
+            "cameras": [c.status() for c in hub.cameras.values()],
+            "storage": hub.storage.usage(),
+            "retention_days": config.storage.get("retention_days"),
+            "min_free_gb": config.storage.get("min_free_gb"),
+        }
+
+    def cam_or_404(cam_id):
+        cam = hub.cameras.get(cam_id)
+        if not cam:
+            raise HTTPException(404, "No such camera")
+        return cam
+
+    @app.get("/api/cameras/{cam_id}/snapshot.jpg")
+    def snapshot(cam_id: str):
+        data, _ = cam_or_404(cam_id).latest_jpeg(90)
+        if data is None:
+            raise HTTPException(503, "No picture yet")
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/cameras/{cam_id}/live.mjpg")
+    async def live(cam_id: str, request: Request):
+        cam = cam_or_404(cam_id)
+
+        async def frames():
+            last = 0
+            while not await request.is_disconnected():
+                data, fid = await asyncio.to_thread(cam.latest_jpeg)
+                if data is not None and fid != last:
+                    last = fid
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                           + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
+                await asyncio.sleep(1.0 / cam.LIVE_FPS)
+
+        return StreamingResponse(frames(), media_type="multipart/x-mixed-replace; boundary=frame",
+                                 headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/cameras/{cam_id}/ptz")
+    async def ptz(cam_id: str, request: Request):
+        cam = cam_or_404(cam_id)
+        if not cam.ptz or not cam.ptz.available:
+            # Try once more, in case the camera was offline at start-up.
+            if not cam.ptz or not await asyncio.to_thread(cam.ptz.connect):
+                raise HTTPException(409, cam.ptz.error if cam.ptz else "Pan and tilt not set up")
+        body = await request.json()
+        try:
+            if body.get("action") == "stop":
+                await asyncio.to_thread(cam.ptz.stop)
+            else:
+                await asyncio.to_thread(cam.ptz.move, body.get("pan", 0), body.get("tilt", 0), body.get("zoom", 0))
+        except Exception as e:
+            raise HTTPException(502, f"Camera refused: {e}")
+        return {"ok": True}
+
+    @app.get("/api/cameras/{cam_id}/settings")
+    def get_settings(cam_id: str):
+        cam = cam_or_404(cam_id)
+        return {"name": cam.cfg.get("name"), "motion": cam.motion}
+
+    @app.put("/api/cameras/{cam_id}/settings")
+    async def put_settings(cam_id: str, request: Request):
+        cam = cam_or_404(cam_id)
+        body = await request.json()
+        motion = body.get("motion", {})
+        new = dict(cam.motion)
+        for k, (typ, lo, hi) in EDITABLE_MOTION.items():
+            if k in motion:
+                try:
+                    v = typ(motion[k])
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f"Bad value for {k}")
+                if lo is not None:
+                    v = max(lo, min(hi, v))
+                new[k] = v
+        if "ignore_zones" in motion:
+            zones = []
+            for z in motion["ignore_zones"][:20]:
+                pts = [[max(0.0, min(1.0, float(x))), max(0.0, min(1.0, float(y)))]
+                       for x, y in z.get("points", [])[:50]]
+                if len(pts) >= 3:
+                    zones.append({"name": str(z.get("name", "Zone"))[:40], "points": pts})
+            new["ignore_zones"] = zones
+        cam.cfg["motion"] = new
+        config.save()
+        return {"motion": new}
+
+    # ---- recordings -----------------------------------------------------------
+
+    @app.get("/api/days")
+    def days(camera: str = None):
+        return hub.storage.days(camera)
+
+    @app.get("/api/clips")
+    def clips(date: str, camera: str = None):
+        return hub.storage.clips(date, camera)
+
+    def clip_file(clip_id, ext):
+        base = hub.storage.clip_base(clip_id)
+        if not base or not os.path.isfile(base + ext):
+            raise HTTPException(404, "Clip not found")
+        return base + ext
+
+    @app.get("/api/clips/{clip_id}/video")
+    def clip_video(clip_id: str, download: int = 0):
+        path = clip_file(clip_id, ".mp4")
+        headers = {"Cache-Control": "private, max-age=86400"}
+        if download:
+            return FileResponse(path, media_type="video/mp4", filename=f"{clip_id}.mp4", headers=headers)
+        return FileResponse(path, media_type="video/mp4", headers=headers)
+
+    @app.get("/api/clips/{clip_id}/thumb")
+    def clip_thumb(clip_id: str):
+        return FileResponse(clip_file(clip_id, ".jpg"), media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.delete("/api/clips/{clip_id}")
+    def delete_clip(clip_id: str):
+        if not hub.storage.delete_clip(clip_id):
+            raise HTTPException(404, "Clip not found")
+        return {"ok": True}
+
+    # ---- live events (used for phone notifications) ---------------------------
+
+    @app.get("/api/events")
+    async def events(request: Request, since: int = 0):
+        q = hub.events.subscribe()
+
+        async def stream():
+            try:
+                yield "retry: 5000\n\n"
+                for e in hub.events.since(since) if since else []:
+                    yield f"id: {e['seq']}\ndata: {json.dumps(e)}\n\n"
+                quiet = 0.0
+                while not await request.is_disconnected():
+                    try:
+                        e = q.get_nowait()
+                    except queue.Empty:
+                        await asyncio.sleep(0.5)
+                        quiet += 0.5
+                        if quiet >= 20:
+                            quiet = 0.0
+                            yield ": keep-alive\n\n"
+                        continue
+                    quiet = 0.0
+                    yield f"id: {e['seq']}\ndata: {json.dumps(e)}\n\n"
+            finally:
+                hub.events.unsubscribe(q)
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    return app

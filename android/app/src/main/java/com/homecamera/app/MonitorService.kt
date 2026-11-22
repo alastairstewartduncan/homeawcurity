@@ -1,0 +1,245 @@
+package com.homecamera.app
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Build
+import android.os.IBinder
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * Keeps a connection open to the recorder's event stream and shows a notification,
+ * with a snapshot, whenever a recording starts or a person is seen.
+ */
+class MonitorService : Service() {
+
+    @Volatile private var running = false
+    private var worker: Thread? = null
+    @Volatile private var connection: HttpURLConnection? = null
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannels(this)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val ongoing = NotificationCompat.Builder(this, CHANNEL_SERVICE)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle("Watching for alerts")
+            .setContentText("You'll be told when the camera records something")
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setContentIntent(openApp(this, null))
+            .build()
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(ID_SERVICE, ongoing, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(ID_SERVICE, ongoing)
+        }
+        if (!running) {
+            running = true
+            worker = Thread(::loop, "events").also { it.start() }
+        }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        running = false
+        connection?.disconnect()
+        worker?.interrupt()
+        super.onDestroy()
+    }
+
+    private fun loop() {
+        var backoff = 2_000L
+        while (running) {
+            val prefs = Prefs(this)
+            if (prefs.serverUrl.isEmpty() || prefs.token.isEmpty()) {
+                stopSelf()
+                return
+            }
+            try {
+                val url = URL("${prefs.serverUrl}/api/events?since=${prefs.lastEventId}")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    setRequestProperty("Authorization", "Bearer ${prefs.token}")
+                    setRequestProperty("Accept", "text/event-stream")
+                    connectTimeout = 15_000
+                    readTimeout = 60_000 // the server sends a keep-alive every 20 s
+                }
+                connection = conn
+                if (conn.responseCode == 401) {
+                    showSignedOut()
+                    prefs.token = ""
+                    stopSelf()
+                    return
+                }
+                if (conn.responseCode != 200) throw IllegalStateException("HTTP ${conn.responseCode}")
+                backoff = 2_000L
+                BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
+                    val data = StringBuilder()
+                    while (running) {
+                        val line = reader.readLine() ?: break
+                        when {
+                            line.startsWith("data:") -> data.append(line.substring(5).trim())
+                            line.isEmpty() && data.isNotEmpty() -> {
+                                handle(JSONObject(data.toString()))
+                                data.clear()
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Event stream: ${e.message}")
+            } finally {
+                connection?.disconnect()
+                connection = null
+            }
+            if (!running) return
+            try {
+                Thread.sleep(backoff)
+            } catch (_: InterruptedException) {
+                return
+            }
+            backoff = (backoff * 2).coerceAtMost(60_000L)
+        }
+    }
+
+    private fun handle(e: JSONObject) {
+        val prefs = Prefs(this)
+        val seq = e.optLong("seq", 0)
+        // Remember where we got to, so alerts missed while reconnecting are caught up.
+        if (seq > 0) prefs.lastEventId = seq
+        val type = e.optString("type")
+        if (type != "clip_started" && type != "person") return
+        val clip = e.optString("clip")
+        val cam = e.optString("camera_name", e.optString("camera"))
+        val person = type == "person" || e.optBoolean("person")
+        val time = try {
+            val t = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.UK).parse(e.optString("time"))
+            SimpleDateFormat("HH:mm", Locale.UK).format(t ?: Date())
+        } catch (_: Exception) {
+            SimpleDateFormat("HH:mm", Locale.UK).format(Date())
+        }
+        val picture = fetchThumb(prefs, clip)
+        val n = NotificationCompat.Builder(this, if (person) CHANNEL_PERSON else CHANNEL_MOTION)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle(if (person) "$cam: person seen" else "$cam: movement")
+            .setContentText("Recording started at $time. Tap to watch.")
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(false)
+            .setWhen(System.currentTimeMillis())
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setPriority(if (person) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(openApp(this, clip))
+        if (picture != null) {
+            n.setLargeIcon(picture)
+            n.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?))
+        }
+        notify(clip.hashCode(), n.build())
+    }
+
+    private fun fetchThumb(prefs: Prefs, clip: String): Bitmap? {
+        if (clip.isEmpty()) return null
+        repeat(3) { attempt ->
+            try {
+                val conn = URL("${prefs.serverUrl}/api/clips/$clip/thumb").openConnection() as HttpURLConnection
+                conn.setRequestProperty("Authorization", "Bearer ${prefs.token}")
+                conn.connectTimeout = 10_000
+                conn.readTimeout = 15_000
+                if (conn.responseCode == 200) return conn.inputStream.use { BitmapFactory.decodeStream(it) }
+                conn.disconnect()
+            } catch (_: Exception) {
+            }
+            Thread.sleep(700L * (attempt + 1))
+        }
+        return null
+    }
+
+    private fun showSignedOut() {
+        val n = NotificationCompat.Builder(this, CHANNEL_MOTION)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle("Home Camera alerts are off")
+            .setContentText("Open the app and sign in again to get alerts.")
+            .setAutoCancel(true)
+            .setContentIntent(openApp(this, null))
+            .build()
+        notify(ID_SIGNED_OUT, n)
+    }
+
+    private fun notify(id: Int, n: Notification) {
+        try {
+            NotificationManagerCompat.from(this).notify(id, n)
+        } catch (_: SecurityException) {
+            // Notifications not allowed by the user.
+        }
+    }
+
+    companion object {
+        private const val TAG = "MonitorService"
+        const val CHANNEL_SERVICE = "service"
+        const val CHANNEL_PERSON = "person"
+        const val CHANNEL_MOTION = "motion"
+        const val ID_SERVICE = 1
+        const val ID_SIGNED_OUT = 2
+        const val ACTION_STOP = "stop"
+        const val EXTRA_CLIP = "clip"
+
+        fun start(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, MonitorService::class.java))
+        }
+
+        fun stop(context: Context) {
+            context.stopService(Intent(context, MonitorService::class.java))
+        }
+
+        fun createChannels(context: Context) {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_PERSON, "Person seen", NotificationManager.IMPORTANCE_HIGH)
+                    .apply { description = "A person was seen and recording started" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_MOTION, "Movement", NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = "Movement was seen and recording started" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_SERVICE, "Background connection", NotificationManager.IMPORTANCE_MIN)
+                    .apply { description = "Shown while the app listens for alerts"; setShowBadge(false) }
+            )
+        }
+
+        fun openApp(context: Context, clip: String?): PendingIntent {
+            val i = Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            if (!clip.isNullOrEmpty()) i.putExtra(EXTRA_CLIP, clip)
+            return PendingIntent.getActivity(
+                context, clip?.hashCode() ?: 0, i,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+    }
+}

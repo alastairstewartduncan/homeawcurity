@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Camera</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .login { max-width: 360px; margin: 12vh auto; padding: 24px; }
+  .login h1 { font-size: 22px; margin: 0 0 4px; display: flex; gap: 10px; align-items: center; }
+  .login input { width: 100%; padding: 12px; margin: 16px 0 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel-2); }
+  .login button { width: 100%; padding: 12px; }
+  .error { color: var(--rec); min-height: 22px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<form class="card login" id="f">
+  <h1><img src="/favicon.svg" width="28" height="28" alt=""> Home Camera</h1>
+  <div class="muted">Enter your password to see your cameras.</div>
+  <input type="password" id="p" autocomplete="current-password" placeholder="Password" autofocus required>
+  <button class="primary" type="submit">Sign in</button>
+  <div class="error" id="e"></div>
+  <a href="#" id="server" class="muted hidden">Change PC address</a>
+</form>
+<script>
+if (window.HomeCamera && window.HomeCamera.changeServer) {
+  const a = document.getElementById('server');
+  a.classList.remove('hidden');
+  a.addEventListener('click', (ev) => { ev.preventDefault(); window.HomeCamera.changeServer(); });
+}
+document.getElementById('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const e = document.getElementById('e');
+  e.textContent = '';
+  const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: document.getElementById('p').value})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { e.textContent = j.error || 'Sign in failed'; return; }
+  // Inside the Android app, hand the token over so it can send notifications.
+  if (window.HomeCamera && window.HomeCamera.setToken) window.HomeCamera.setToken(j.token);
+  location.href = '/';
+});
+</script>
+</body>
+</html>

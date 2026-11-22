@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Home Camera</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1><img src="/favicon.svg" width="22" height="22" alt=""> Home Camera</h1>
+  <nav>
+    <button data-tab="live" class="active">Live</button>
+    <button data-tab="recordings">Recordings</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+  <div class="header-right">
+    <span class="storage" id="storage"></span>
+    <button id="logout">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <section id="tab-live">
+    <div class="grid-live" id="live"></div>
+  </section>
+
+  <section id="tab-recordings" class="hidden">
+    <div class="toolbar">
+      <div class="days" id="days"></div>
+      <div class="seg" id="filter">
+        <button data-f="all" class="active">All</button>
+        <button data-f="person">People</button>
+      </div>
+      <select id="cam-filter"></select>
+    </div>
+    <div class="clips" id="clips"></div>
+  </section>
+
+  <section id="tab-settings" class="hidden">
+    <div class="settings" id="settings"></div>
+  </section>
+</main>
+
+<div class="player hidden" id="player">
+  <video id="video" controls playsinline preload="auto"></video>
+  <div class="player-bar">
+    <div class="title" id="player-title"></div>
+    <button id="prev">◀ Newer</button>
+    <button id="next">Older ▶</button>
+    <a id="download"><button>Download</button></a>
+    <button id="delete" class="danger">Delete</button>
+    <button id="close" class="primary">Close</button>
+  </div>
+</div>
+
+<template id="cam-tpl">
+  <div class="cam">
+    <div class="cam-head"><span class="name"></span><span class="pill state"></span></div>
+    <div class="video-wrap"><img alt="Live view"><div class="msg hidden">Connecting…</div></div>
+    <div class="cam-tools">
+      <div class="ptz hidden">
+        <span class="c"></span><button data-d="0,1" aria-label="Up">▲</button><span class="c"></span>
+        <button data-d="-1,0" aria-label="Left">◀</button><span class="c"></span><button data-d="1,0" aria-label="Right">▶</button>
+        <span class="c"></span><button data-d="0,-1" aria-label="Down">▼</button><span class="c"></span>
+      </div>
+      <div class="speed ptz-speed hidden">Pan speed<input type="range" min="0.1" max="1" step="0.1" value="0.5"></div>
+      <div style="flex:1"></div>
+      <button class="snap">Save picture</button>
+      <button class="full">Full screen</button>
+    </div>
+  </div>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

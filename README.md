@@ -26,26 +26,35 @@ The small second stream from the camera is used for motion and person detection 
 
 ## 1. Set up the PC
 
-You need Windows 10 or 11 and about 10 minutes.
+You need Windows 10 or 11 (64-bit). The PC should stay switched on.
 
-1. Download this repository (green **Code** button, then **Download ZIP**) and unzip it somewhere
-   permanent, such as `C:\HomeCamera`.
-2. Open the `pc\scripts` folder, right-click `install.ps1` and choose **Run with PowerShell**.
-   Allow it to make changes when Windows asks. If Windows blocks the script, run this once in an
-   admin PowerShell window first: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
-3. It installs Python and FFmpeg if needed, then asks you to:
-   - **choose a password** for the viewer and phone app (at least 8 characters);
-   - **enter the camera's IP address and user name.** It then tries the usual stream addresses
-     and prints the ones that work. Find the IP in the Hiseeu app's device info, or your router's
-     list of devices. The camera password is typed into the PowerShell window only.
-4. Notepad opens `config.json`. Paste the `main_url` and `sub_url` it printed, and fill in the
-   `onvif` section (same IP, port 8899 on most Hiseeu cameras, same user name and password) for
-   pan and tilt. Save and close Notepad.
-5. Done. Use the **Home Camera** icon on the desktop. The recorder starts by itself with Windows,
+1. Download **HomeCameraSetup.exe** from this repository's **Releases** (Home Camera, latest build)
+   and run it. Windows may warn that the app is from an unknown publisher: choose
+   **More info**, then **Run anyway**.
+2. Follow the wizard:
+   - **Choose a password** for the viewer and phone app (at least 8 characters).
+   - **Your camera**: its IP address (in the Hiseeu app's device info, or your router's list of
+     devices), user name and password. Setup searches the camera for its video and saves what it
+     finds, including the pan and tilt (ONVIF) details. Leave the IP empty to do this later.
+   - **Where to keep recordings**: default `C:\CameraRecordings`.
+3. Done. Open **Home Camera** from the desktop or Start menu. It starts by itself with Windows,
    even before anyone signs in.
 
-After editing `config.json` by hand, run `pc\scripts\restart.ps1`. Settings changed in the
-viewer's Settings tab apply straight away.
+The Start menu also has **Find camera again** (if the camera's address changes), **Change
+password**, **Restart Home Camera**, and shortcuts to the settings and recordings folders.
+Settings live in `C:\ProgramData\HomeCamera\config.json`; after editing that file by hand, use
+**Restart Home Camera**. Settings changed in the viewer's Settings tab apply straight away.
+
+To remove it, uninstall **Home Camera** from Windows Settings > Apps. Your recordings are kept.
+
+<details>
+<summary>Running from source instead (for developers)</summary>
+
+Download the repository, right-click `pc\scripts\install.ps1` and choose **Run with
+PowerShell**. It installs Python and FFmpeg, asks for a password and the camera, opens
+`config.json` in Notepad, and registers the startup task. After editing `config.json`, run
+`pc\scripts\restart.ps1`.
+</details>
 
 ### Camera tips
 
@@ -67,6 +76,9 @@ viewer's Settings tab apply straight away.
 | `server.https_cert`, `server.https_key` | Paths to a certificate and key to switch on HTTPS. |
 | `cameras[].motion.person_only` | `true` to record only when a person is seen. |
 | `cameras[].motion.pre_seconds` / `post_seconds` | Seconds kept before and after the motion. |
+
+To change retention or free space, edit these in `C:\ProgramData\HomeCamera\config.json`
+(needs admin rights, for example open Notepad with "Run as administrator").
 
 To add a second camera, copy the camera block in `cameras` and give it its own `id` (letters,
 numbers and dashes only).
@@ -95,15 +107,17 @@ internet unencrypted. Five wrong passwords from one address locks it out for 15 
 
 ## Troubleshooting
 
-- **Logs:** `pc\logs\camhub.log`
-- **Find the stream again:** `pc\.venv\Scripts\python -m camhub find-stream 192.168.1.50 --user admin`
-- **Change the password:** `pc\.venv\Scripts\python -m camhub set-password`, then restart.
-  This signs out every device, including the phone.
+- **Logs:** `C:\ProgramData\HomeCamera\logs\camhub.log` (Start menu > Home Camera > Settings and logs folder)
+- **Camera not found, or its address changed:** Start menu > Home Camera > Find camera again.
+- **Change the password:** Start menu > Home Camera > Change password. This signs out every
+  device, including the phone.
 - **No pan and tilt buttons:** the camera didn't answer ONVIF on the given port. Check the
   `onvif` section and that ONVIF is on in the camera's settings.
 
 ## For developers
 
+- Installer: `pc/installer` (PyInstaller recipe and Inno Setup script), built and test-installed
+  on Windows by GitHub Actions.
 - Recorder: Python 3.10+, FastAPI, OpenCV, FFmpeg. `pc/camhub/camera.py` holds the recording logic.
   Run tests with `python -m pytest pc/tests`.
 - Viewer: plain HTML and JavaScript in `pc/camhub/static`, served by the recorder.

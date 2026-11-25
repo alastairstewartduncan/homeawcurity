@@ -41,11 +41,29 @@ def _is_rtsp(url):
     return url.lower().startswith(("rtsp://", "rtsps://"))
 
 
-def _input_args(url):
+def _input_args(url, wallclock=False):
+    # Some cameras (Hiseeu/XMeye) send packets without timestamps, which MPEG-TS can't
+    # hold. Stamping them with the PC's clock fixes that.
+    extra = ["-use_wallclock_as_timestamps", "1"] if wallclock else []
     if _is_rtsp(url):
-        return ["-rtsp_transport", "tcp", "-timeout", "10000000", "-i", url]
+        return ["-rtsp_transport", "tcp", "-timeout", "10000000", *extra, "-i", url]
     # Anything else (a test video file) is played in real time, on a loop.
-    return ["-re", "-stream_loop", "-1", "-i", url]
+    return ["-re", "-stream_loop", "-1", *extra, "-i", url]
+
+
+def _plain_error(text):
+    """Turns an ffmpeg error line into something a person can act on."""
+    text = re.sub(r"^\[[^\]]*\]\s*", "", text)
+    low = text.lower()
+    if "401" in low or "unauthorized" in low:
+        return "the camera refused the user name or password."
+    if "connection refused" in low:
+        return "the camera refused the connection. Check its IP address."
+    if "timed out" in low or "timeout" in low:
+        return "the camera didn't answer in time. Check it's on and connected."
+    if "pts" in low or "mux" in low:
+        return "the camera's video has missing timestamps. Trying another way to read it."
+    return text[:200]
 
 
 class FfmpegCapture:
@@ -306,19 +324,39 @@ class Camera:
 
     # ---- main stream: memory buffer and clip writing ------------------------
 
+    # Ways of reading the main stream, tried in order until one keeps running.
+    STREAM_MODES = [
+        {"wallclock": False, "audio": True},
+        {"wallclock": True, "audio": True},
+        {"wallclock": True, "audio": False},
+    ]
+
+    def _stream_cmd(self, url, mode):
+        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", *_input_args(url, mode["wallclock"]),
+               "-map", "0:v:0", "-c:v", "copy"]
+        if mode["audio"]:
+            # Cameras often send G.711 audio, which MP4 can't hold. AAC is tiny to make.
+            cmd += ["-map", "0:a:0?", "-c:a", "aac", "-b:a", "64k", "-ar", "16000"]
+        else:
+            cmd += ["-an"]
+        return cmd + ["-f", "mpegts", "-mpegts_flags", "+resend_headers", "pipe:1"]
+
     def _stream_loop(self):
         backoff = 2
+        mode_i = 0
         while not self._stop.is_set():
             url = self.cfg.get("main_url")
             if not url:
                 time.sleep(5)
                 continue
-            cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", *_input_args(url),
-                   "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "copy",
-                   # Cameras often send G.711 audio, which MP4 can't hold. AAC is tiny to make.
-                   "-c:a", "aac", "-b:a", "64k", "-ar", "16000",
-                   "-f", "mpegts", "-mpegts_flags", "+resend_headers", "pipe:1"]
-            log.info("[%s] Connecting to main stream", self.id)
+            if url != getattr(self, "_mode_url", None):
+                self._mode_url, mode_i = url, 0
+            mode = self.STREAM_MODES[mode_i]
+            cmd = self._stream_cmd(url, mode)
+            self._stream_errors = []
+            log.info("[%s] Connecting to main stream%s%s", self.id,
+                     " (timestamps from the PC clock)" if mode["wallclock"] else "",
+                     ", without sound" if not mode["audio"] else "")
             try:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
@@ -328,22 +366,17 @@ class Camera:
                 log.error("ffmpeg was not found. Install it and try again.")
                 time.sleep(30)
                 continue
-            self.stream_problem = None
-            threading.Thread(target=self._log_stderr, args=(proc, "main stream"), daemon=True).start()
+            err_thread = threading.Thread(target=self._log_stderr, args=(proc, "main stream"), daemon=True)
+            err_thread.start()
             packets = TsPacketizer()
             self.ts = TsStream()
             self.preroll = PreRollBuffer(self.motion["pre_seconds"])
             got_data = False
+            started = time.monotonic()
             while not self._stop.is_set():
                 data = proc.stdout.read(188 * 256)
                 if not data:
                     break
-                if not got_data:
-                    got_data = True
-                    self.stream_online = True
-                    self.stream_problem = None
-                    backoff = 2
-                    log.info("[%s] Main stream connected", self.id)
                 now = time.monotonic()
                 with self._lock:
                     self.preroll.seconds = self.motion["pre_seconds"]
@@ -353,15 +386,34 @@ class Camera:
                         if self.clip:
                             self.clip.write(pkt)
                     self._check_clip_end(now)
+                # Online once real video (a keyframe) has arrived, not just the stream headers.
+                if not got_data and self.preroll.gops:
+                    got_data = True
+                    self.stream_online = True
+                    self.stream_problem = None
+                    backoff = 2
+                    log.info("[%s] Main stream connected", self.id)
+            ran_for = time.monotonic() - started
             self.stream_online = False
             proc.kill()
             proc.wait()
             with self._lock:
                 if self.clip:
                     self._close_clip()
+            err_thread.join(timeout=2)
             if not self._stop.is_set():
-                if not got_data and not self.stream_problem:
+                errors = list(self._stream_errors)
+                if errors:
+                    self.stream_problem = _plain_error(errors[0])
+                elif not got_data:
                     self.stream_problem = "the camera sent no video."
+                # Failing straight away on timestamps or muxing means this way of reading the
+                # stream doesn't suit the camera: try the next one.
+                muxing = any("pts" in e or "mux" in e.lower() for e in errors)
+                if muxing and ran_for < 30 and mode_i < len(self.STREAM_MODES) - 1:
+                    mode_i += 1
+                    log.warning("[%s] The camera's stream needs a different setting, trying again", self.id)
+                    backoff = 1
                 log.warning("[%s] Main stream lost, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 60)
@@ -372,8 +424,10 @@ class Camera:
             if text:
                 text = redact(text)
                 log.warning("[%s] ffmpeg (%s): %s", self.id, what, text)
-                if not self.stream_online:
-                    self.stream_problem = text[-200:]
+                if not text.startswith("Last message repeated"):
+                    errs = getattr(self, "_stream_errors", None)
+                    if errs is not None and len(errs) < 20:
+                        errs.append(text)
 
     def _start_clip(self, trigger, person, frame, boxes):
         """Called with the lock held."""
@@ -474,7 +528,7 @@ class Camera:
             while not self._stop.is_set():
                 t0 = time.monotonic()
                 ok, frame = cap.read()
-                if not ok or frame is None:
+                if not ok or frame is None or frame.size == 0:
                     if is_file:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         failures += 1
@@ -595,7 +649,7 @@ class Camera:
     def latest_jpeg(self, quality=75):
         with self._frame_cond:
             frame, fid = self._frame, self._frame_id
-        if frame is None:
+        if frame is None or frame.size == 0:
             return None, 0
         cached_id, cached = self._jpeg_cache
         if cached_id == fid:

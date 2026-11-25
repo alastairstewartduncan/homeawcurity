@@ -206,6 +206,16 @@ def test_camera_setup_api(tmp_path, monkeypatch):
     assert r.json()["ok"] and calls[-1][2] == "secret"
     assert "front-door" in hub.cameras and hub.cameras["front-door"].cfg["name"] == "Front"
 
+    # Check video: runs the checks with passwords hidden, then the camera is running again.
+    monkeypatch.setattr(discovery, "diagnose",
+                        lambda main, sub, report, **k: report(f"main {main} rtsp://admin:secret@10.0.0.5/x"))
+    monkeypatch.setattr(discovery, "list_paths", lambda ip, u, p, port, report: report(f"paths {ip}"))
+    r = client.post("/api/cameras/front-door/diagnose")
+    assert r.status_code == 200
+    text = "\n".join(r.json()["log"])
+    assert "secret" not in text and "paths 10.0.0.5" in text
+    assert "front-door" in hub.cameras
+
     assert client.put("/api/storage", json={"retention_days": 7, "min_free_gb": 5}).status_code == 200
     assert client.delete("/api/cameras/front-door").status_code == 200
     saved = json.loads(cfg_path.read_text())

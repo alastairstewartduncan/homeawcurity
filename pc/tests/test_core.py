@@ -253,6 +253,8 @@ def test_live_picture_falls_back_to_ffmpeg(tmp_path, monkeypatch):
         available = False
 
     cam = cam_mod.Camera(c, Storage(cfg), EventBus(), NoPeople())
+    assert cam.problem().startswith("No video address")
+    c["main_url"] = str(video)
     assert cam.problem() == "Connecting to the camera…"
     threading_start = time.monotonic()
     import threading
@@ -265,3 +267,45 @@ def test_live_picture_falls_back_to_ffmpeg(tmp_path, monkeypatch):
     cam.stream_problem = "Connection refused"
     assert cam.problem() == "Recording stream: Connection refused"
     cam.stop()
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_stream_without_timestamps_recovers(tmp_path, caplog):
+    """Hiseeu cameras send packets without timestamps ("first pts and dts value must be set").
+    The recorder must switch to the PC's clock and get the main stream online."""
+    import time
+
+    from camhub import camera as cam_mod
+    from camhub.config import DEFAULT_MOTION
+    from camhub.events import EventBus
+    from camhub.storage import Storage
+
+    raw = tmp_path / "main.264"  # a raw H.264 stream carries no timestamps at all
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=15",
+                    "-t", "6", "-c:v", "libx264", "-g", "15", "-f", "h264", str(raw)], check=True)
+    (tmp_path / "config.json").write_text(json.dumps({"storage": {"path": str(tmp_path / "rec")},
+                                                       "cameras": []}))
+    cfg = Config(str(tmp_path / "config.json"))
+
+    class NoPeople:
+        available = False
+
+    import logging
+    caplog.set_level(logging.INFO, logger="camhub.camera")
+    c = {"id": "garden", "name": "Garden", "main_url": str(raw), "sub_url": "", "motion": dict(DEFAULT_MOTION)}
+    cam = cam_mod.Camera(c, Storage(cfg), EventBus(), NoPeople())
+    import threading
+    threading.Thread(target=cam._stream_loop, daemon=True).start()
+    t0 = time.monotonic()
+    while not cam.stream_online and time.monotonic() - t0 < 30:
+        time.sleep(0.2)
+    cam.stop()
+    assert cam.stream_online, cam.stream_problem
+    assert "PC clock" in caplog.text
+
+
+def test_plain_errors():
+    from camhub.camera import _plain_error
+
+    assert "timestamps" in _plain_error("[mpegts @ 0000] first pts and dts value must be set")
+    assert "password" in _plain_error("[rtsp @ 0x1] method DESCRIBE failed: 401 Unauthorized")

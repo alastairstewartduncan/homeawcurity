@@ -96,6 +96,49 @@ jobs:
           Get-Content ci/logs/camhub.log -ErrorAction SilentlyContinue
           if (-not $ok) { throw "camhub.exe did not serve the viewer" }
 
+      - name: Check camhub.exe shows a camera from RTSP
+        run: |
+          # A stand-in camera: mediamtx serves a test video over RTSP, like the real camera.
+          Invoke-WebRequest "https://github.com/bluenviron/mediamtx/releases/download/v1.9.3/mediamtx_v1.9.3_windows_amd64.zip" -OutFile mediamtx.zip
+          Expand-Archive mediamtx.zip -DestinationPath mediamtx
+          $ff = "$PWD/installer/ffmpeg/ffmpeg.exe"
+          & $ff -v error -f lavfi -i "testsrc=size=1920x1080:rate=15" -f lavfi -i "sine=frequency=440:sample_rate=8000" -t 20 -c:v libx264 -g 30 -c:a pcm_alaw main.mkv
+          & $ff -v error -f lavfi -i "testsrc=size=640x360:rate=15" -t 20 -c:v libx264 -g 30 sub.mkv
+          $env:MTX_RTSPADDRESS = ":554"
+          $mtx = Start-Process mediamtx/mediamtx.exe -WorkingDirectory "$PWD/mediamtx" -PassThru
+          Start-Sleep 3
+          $pubs = @(
+            (Start-Process $ff -ArgumentList "-v error -re -stream_loop -1 -i main.mkv -c copy -f rtsp rtsp://127.0.0.1:554/live/main" -PassThru -NoNewWindow),
+            (Start-Process $ff -ArgumentList "-v error -re -stream_loop -1 -i sub.mkv -c copy -f rtsp rtsp://127.0.0.1:554/live/sub" -PassThru -NoNewWindow))
+          Copy-Item installer/ffmpeg/*.exe dist/camhub/
+          $p = Start-Process dist/camhub/camhub.exe -ArgumentList "--config `"$PWD/ci/config.json`" run" -PassThru
+          $online = $false
+          try {
+            Start-Sleep 5
+            $tok = (Invoke-RestMethod http://localhost:8080/api/login -Method Post -ContentType application/json -Body '{"password": "ci-password-123"}').token
+            $h = @{ Authorization = "Bearer $tok" }
+            $setup = Invoke-RestMethod http://localhost:8080/api/cameras/setup -Method Post -Headers $h -ContentType application/json -TimeoutSec 300 `
+              -Body '{"name": "Garden", "ip": "127.0.0.1", "user": "", "password": "", "onvif_port": 0}'
+            $setup.log
+            foreach ($i in 1..45) {
+              Start-Sleep 2
+              $cam = (Invoke-RestMethod http://localhost:8080/api/status -Headers $h).cameras[0]
+              if ($cam.online) { $online = $true; break }
+            }
+            $cam | ConvertTo-Json
+            if ($online) {
+              $snap = Invoke-WebRequest "http://localhost:8080/api/cameras/$($cam.id)/snapshot.jpg" -Headers $h -UseBasicParsing
+              "Snapshot: $($snap.RawContentLength) bytes"
+            }
+          } finally {
+            Stop-Process $p -Force
+            $pubs | ForEach-Object { Stop-Process $_ -Force -ErrorAction SilentlyContinue }
+            Stop-Process $mtx -Force
+            Remove-Item dist/camhub/ffmpeg.exe, dist/camhub/ffprobe.exe
+            Get-Content ci/logs/camhub.log -ErrorAction SilentlyContinue
+          }
+          if (-not $online) { throw "the camera never came online in camhub.exe" }
+
       - name: Build the installer
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }

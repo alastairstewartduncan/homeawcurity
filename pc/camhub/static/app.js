@@ -102,6 +102,9 @@ function updateLive() {
     const pill = $('.state', el);
     pill.className = 'pill state ' + (c.recording ? 'rec' : c.online ? 'ok' : 'off');
     pill.textContent = c.recording ? '● Recording' : c.online ? 'Watching' : 'Offline';
+    const why = $('.why', el);
+    why.textContent = c.online ? '' : (c.problem || '');
+    why.classList.toggle('hidden', c.online || !c.problem);
     $('.ptz', el).classList.toggle('hidden', !c.ptz);
     $('.ptz-speed', el).classList.toggle('hidden', !c.ptz);
   }

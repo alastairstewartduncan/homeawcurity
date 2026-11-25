@@ -163,3 +163,51 @@ def test_ptz_talks_onvif():
     srv.shutdown()
     assert 'PanTilt x="0.50" y="-0.50"' in seen[-2]
     assert "<tptz:Stop>" in seen[-1] and "PasswordDigest" in seen[-1]
+
+
+def test_camera_setup_api(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import camhub.discovery as discovery
+    from camhub.__main__ import Hub
+    from camhub.server import create_app
+
+    calls = []
+
+    def fake_find(ip, user, password, port=554, report=print):
+        calls.append((ip, user, password))
+        report("searching")
+        return ("rtsp://cam/main", "rtsp://cam/sub") if ip == "10.0.0.5" else (None, None)
+
+    monkeypatch.setattr(discovery, "find_streams", fake_find)
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps({"server": {"password_hash": auth.hash_password("pw123456")},
+                                    "storage": {"path": str(tmp_path / "rec")}}))
+    config = Config(str(cfg_path))
+    hub = Hub(config)  # not started, so no streams are opened
+    client = TestClient(create_app(hub))
+    client.post("/api/login", json={"password": "pw123456"})
+
+    r = client.post("/api/cameras/setup", json={"name": "Front door", "ip": "10.0.0.9", "password": "x"})
+    assert r.status_code == 200 and r.json()["ok"] is False
+    assert client.get("/api/cameras").json() == []
+
+    r = client.post("/api/cameras/setup", json={"name": "Front door", "ip": "10.0.0.5", "user": "admin",
+                                                 "password": "secret"})
+    assert r.json()["ok"] is True
+    cams = client.get("/api/cameras").json()
+    assert cams[0]["id"] == "front-door" and cams[0]["has_password"] and "password" not in cams[0]
+    saved = json.loads(cfg_path.read_text())["cameras"][0]
+    assert saved["main_url"] == "rtsp://cam/main" and saved["onvif"]["password"] == "secret"
+
+    # Changing it with the password left empty keeps the saved one.
+    r = client.post("/api/cameras/setup", json={"id": "front-door", "name": "Front", "ip": "10.0.0.5",
+                                                 "user": "admin", "password": ""})
+    assert r.json()["ok"] and calls[-1][2] == "secret"
+    assert "front-door" in hub.cameras and hub.cameras["front-door"].cfg["name"] == "Front"
+
+    assert client.put("/api/storage", json={"retention_days": 7, "min_free_gb": 5}).status_code == 200
+    assert client.delete("/api/cameras/front-door").status_code == 200
+    saved = json.loads(cfg_path.read_text())
+    assert saved["cameras"] == [] and saved["storage"]["retention_days"] == 7
+    assert client.post("/api/cameras/setup", json={"ip": "bad ip!"}).status_code == 400

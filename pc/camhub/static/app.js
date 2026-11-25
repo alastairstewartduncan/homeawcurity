@@ -63,6 +63,10 @@ $('#logout').addEventListener('click', async () => {
 // ---------- live ----------
 function buildLive() {
   const wrap = $('#live'); wrap.innerHTML = '';
+  if (!status.cameras.length) {
+    wrap.innerHTML = '<div class="card empty">No camera is set up yet. <button class="primary" id="go-settings">Set up a camera</button></div>';
+    $('#go-settings').addEventListener('click', () => showTab('settings'));
+  }
   for (const c of status.cameras) {
     const el = $('#cam-tpl').content.firstElementChild.cloneNode(true);
     el.dataset.cam = c.id;
@@ -232,22 +236,101 @@ const FIELDS = [
 
 async function loadSettings() {
   const wrap = $('#settings'); wrap.innerHTML = '';
+  wrap.appendChild(await camerasCard());
   for (const c of status.cameras) {
     const s = await api(`/api/cameras/${c.id}/settings`);
     wrap.appendChild(settingsCard(c, s.motion));
   }
+  wrap.appendChild(storageCard());
+}
+
+function esc(t) { const d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+
+async function camerasCard() {
+  const cams = await api('/api/cameras');
+  const card = document.createElement('div'); card.className = 'card wide';
+  card.innerHTML = `<h2>Cameras</h2>
+    <p class="muted" style="margin-top:0">Enter the camera's IP address and login, then press <b>Find and save</b>.
+    Home Camera searches the camera for its video and starts using it straight away.
+    Find the IP address in the Hiseeu app's device info, or your router's list of devices.</p>`;
+  for (const c of cams) card.appendChild(cameraForm(c));
+  const add = document.createElement('button'); add.textContent = '+ Add a camera';
+  add.addEventListener('click', () => { card.insertBefore(cameraForm(null), add); add.remove(); });
+  if (cams.length) card.appendChild(add); else card.appendChild(cameraForm(null));
+  return card;
+}
+
+function cameraForm(c) {
+  const f = document.createElement('div'); f.className = 'cam-form';
+  const id = c ? c.id : 'new';
+  f.innerHTML = `
+    <div class="cam-form-head"><b>${c ? esc(c.name) : 'New camera'}</b>
+      <span class="pill ${c && c.configured ? 'ok' : 'off'}">${c ? (c.configured ? 'Set up' : 'Not found yet') : 'New'}</span></div>
+    <div class="grid-form">
+      <label>Name<input name="name" value="${esc(c ? c.name : 'Front')}" maxlength="40"></label>
+      <label>IP address<input name="ip" value="${esc(c ? c.ip : '')}" placeholder="192.168.1.50" inputmode="decimal"></label>
+      <label>User name<input name="user" value="${esc(c ? c.user || 'admin' : 'admin')}" autocomplete="off"></label>
+      <label>Password<input name="password" type="password" autocomplete="new-password"
+        placeholder="${c && c.has_password ? 'Unchanged' : 'Camera password'}"></label>
+      <label>ONVIF port<input name="onvif_port" value="${esc(c ? c.onvif_port : 8899)}" inputmode="numeric"></label>
+    </div>
+    <div class="toolbar"><button class="primary find">Find and save</button>
+      ${c ? '<button class="danger remove">Remove camera</button>' : ''}</div>
+    <pre class="find-log hidden"></pre>`;
+  const val = (n) => $(`[name=${n}]`, f).value;
+  $('.find', f).addEventListener('click', async (ev) => {
+    const btn = ev.target; const log = $('.find-log', f);
+    btn.disabled = true; btn.textContent = 'Searching… (up to a minute)';
+    log.classList.remove('hidden'); log.textContent = 'Looking for the camera…';
+    try {
+      const r = await api('/api/cameras/setup', {method: 'POST', body: JSON.stringify({
+        id: c ? c.id : null, name: val('name'), ip: val('ip'), user: val('user'),
+        password: val('password'), onvif_port: val('onvif_port')})});
+      log.textContent = r.log.join('\n');
+      if (r.ok) {
+        toast('Camera saved');
+        await refreshStatus(); buildLive();
+        setTimeout(() => loadSettings(), 1500);
+      }
+    } catch (e) { log.textContent = e.message; }
+    btn.disabled = false; btn.textContent = 'Find and save';
+  });
+  const rm = $('.remove', f);
+  if (rm) rm.addEventListener('click', async () => {
+    if (!confirm(`Remove ${c.name}? Its recordings are kept.`)) return;
+    await api('/api/cameras/' + c.id, {method: 'DELETE'});
+    await refreshStatus(); buildLive(); loadSettings();
+  });
+  return f;
+}
+
+function storageCard() {
   const st = status.storage || {};
-  const info = document.createElement('div'); info.className = 'card';
-  info.innerHTML = `<h2>Storage</h2>
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<h2>Storage</h2>
     <p>Recordings use <b>${fmtBytes(st.recordings_bytes)}</b>. The disk has <b>${fmtBytes(st.disk_free)}</b> free of ${fmtBytes(st.disk_total)}.</p>
-    <p class="muted">Clips older than ${status.retention_days} days are deleted automatically, and the oldest clips go first if free space drops below ${status.min_free_gb} GB. Change these in config.json.</p>
-    <p class="muted">Person detection: ${status.cameras[0] && status.cameras[0].person_detection ? 'ready' : 'model not installed, so every motion records'}.</p>`;
-  wrap.appendChild(info);
+    <div class="field"><label for="keep-days">Keep recordings for (days)</label>
+      <input type="number" id="keep-days" min="0" max="3650" value="${status.retention_days}">
+      <div class="hint">0 keeps them until space runs low.</div></div>
+    <div class="field"><label for="min-free">Always leave free (GB)</label>
+      <input type="number" id="min-free" min="0" max="10000" value="${status.min_free_gb}">
+      <div class="hint">The oldest clips are deleted first if free space drops below this.</div></div>
+    <button class="primary save-storage">Save</button>
+    <p class="muted">Person detection: ${status.person_detection ? 'ready' : 'model not installed, so every motion records'}.</p>`;
+  $('.save-storage', card).addEventListener('click', async () => {
+    try {
+      const r = await api('/api/storage', {method: 'PUT', body: JSON.stringify({
+        retention_days: $('#keep-days', card).value, min_free_gb: $('#min-free', card).value})});
+      status.retention_days = r.retention_days; status.min_free_gb = r.min_free_gb;
+      toast('Storage settings saved');
+    } catch (e) { toast('Could not save: ' + e.message); }
+  });
+  return card;
 }
 
 function settingsCard(cam, m) {
   const card = document.createElement('div'); card.className = 'card';
-  card.innerHTML = `<h2>${cam.name}</h2>`;
+  card.innerHTML = `<h2>Motion: ${esc(cam.name)}</h2>`;
   const inputs = {};
   for (const [key, label, type, hint, min, max, stepv] of FIELDS) {
     const f = document.createElement('div'); f.className = 'field';
@@ -300,7 +383,7 @@ function settingsCard(cam, m) {
     const list = $('.zone-list', zh); list.innerHTML = '';
     zones.forEach((z, i) => {
       const p = document.createElement('span'); p.className = 'pill';
-      p.innerHTML = `${z.name} <button title="Remove">✕</button>`;
+      p.innerHTML = `${esc(z.name)} <button title="Remove">✕</button>`;
       $('button', p).addEventListener('click', () => { zones.splice(i, 1); draw(); });
       list.appendChild(p);
     });

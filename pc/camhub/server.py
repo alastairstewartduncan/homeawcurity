@@ -110,6 +110,7 @@ def create_app(hub):
     @app.get("/api/status")
     def status():
         return {
+            "person_detection": hub.detector.available,
             "cameras": [c.status() for c in hub.cameras.values()],
             "storage": hub.storage.usage(),
             "retention_days": config.storage.get("retention_days"),
@@ -194,6 +195,97 @@ def create_app(hub):
         cam.cfg["motion"] = new
         config.save()
         return {"motion": new}
+
+    # ---- adding and changing cameras -------------------------------------------
+
+    def camera_summary(c):
+        on = c.get("onvif") or {}
+        return {
+            "id": c["id"],
+            "name": c.get("name") or c["id"],
+            "ip": on.get("host", ""),
+            "user": on.get("username", ""),
+            "has_password": bool(on.get("password")),
+            "onvif_port": on.get("port", 8899),
+            "configured": bool(c.get("main_url")),
+        }
+
+    @app.get("/api/cameras")
+    def list_cameras():
+        return [camera_summary(c) for c in config.cameras]
+
+    @app.post("/api/cameras/setup")
+    async def setup_camera(request: Request):
+        """Finds a camera's video from its IP and login, then saves and starts it.
+
+        Body: {"id": optional existing id, "name", "ip", "user", "password" (empty keeps the
+        saved one), "onvif_port"}. Returns {"ok", "log": [...], "camera"}.
+        """
+        import copy
+        import re as _re
+
+        from .config import DEFAULT_CAMERA
+        from .discovery import find_streams
+
+        body = await request.json()
+        ip = str(body.get("ip", "")).strip()
+        if not _re.match(r"^[A-Za-z0-9.\-]{1,253}$", ip):
+            raise HTTPException(400, "Enter the camera's IP address, for example 192.168.1.50")
+        name = str(body.get("name") or "Camera").strip()[:40] or "Camera"
+        user = str(body.get("user") or "admin").strip()[:64]
+        existing = config.camera(body.get("id")) if body.get("id") else None
+        if body.get("id") and not existing:
+            raise HTTPException(404, "No such camera")
+        password = str(body.get("password") or "")
+        if not password and existing:
+            password = (existing.get("onvif") or {}).get("password", "")
+        try:
+            onvif_port = int(body.get("onvif_port") or 8899)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "The ONVIF port must be a number")
+
+        log = []
+        main_url, sub_url = await asyncio.to_thread(find_streams, ip, user, password, 554, log.append)
+        if not main_url:
+            log.append("The camera's video wasn't found. Check the IP address, user name and password, "
+                       "and that the camera is switched on.")
+            return {"ok": False, "log": log}
+
+        if existing:
+            cfg = copy.deepcopy(existing)
+        else:
+            cfg = copy.deepcopy(DEFAULT_CAMERA)
+            base = _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "camera"
+            cam_id, n = base, 2
+            while config.camera(cam_id):
+                cam_id, n = f"{base}-{n}", n + 1
+            cfg["id"] = cam_id
+        cfg["name"] = name
+        cfg["main_url"], cfg["sub_url"] = main_url, sub_url
+        cfg["onvif"] = {"host": ip, "port": onvif_port, "username": user, "password": password}
+        await asyncio.to_thread(hub.put_camera, cfg)
+        log.append("Camera found and saved. It's starting now.")
+        return {"ok": True, "log": log, "camera": camera_summary(cfg)}
+
+    @app.delete("/api/cameras/{cam_id}")
+    async def delete_camera(cam_id: str):
+        if not config.camera(cam_id):
+            raise HTTPException(404, "No such camera")
+        await asyncio.to_thread(hub.remove_camera, cam_id)
+        return {"ok": True}
+
+    @app.put("/api/storage")
+    async def put_storage(request: Request):
+        body = await request.json()
+        try:
+            days = max(0, min(3650, int(body.get("retention_days", config.storage["retention_days"]))))
+            free = max(0.0, min(10000.0, float(body.get("min_free_gb", config.storage["min_free_gb"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Use whole numbers")
+        config.storage["retention_days"] = days
+        config.storage["min_free_gb"] = free
+        config.save()
+        return {"retention_days": days, "min_free_gb": free}
 
     # ---- recordings -----------------------------------------------------------
 

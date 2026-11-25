@@ -40,7 +40,11 @@ You need Windows 10 or 11 (64-bit). The PC should stay switched on.
 3. Done. Open **Home Camera** from the desktop or Start menu. It starts by itself with Windows,
    even before anyone signs in.
 
-The Start menu also has **Find camera again** (if the camera's address changes), **Change
+**To add a camera or change its IP address or login later**, open Home Camera, go to
+**Settings > Cameras**, fill in the details and press **Find and save**. It searches the camera
+and starts using it straight away, with no restart needed. You can add more cameras there too.
+
+The Start menu also has **Find camera again** (the same search, from a command window), **Change
 password**, **Restart Home Camera**, and shortcuts to the settings and recordings folders.
 Settings live in `C:\ProgramData\HomeCamera\config.json`; after editing that file by hand, use
 **Restart Home Camera**. Settings changed in the viewer's Settings tab apply straight away.
@@ -70,7 +74,7 @@ PowerShell**. It installs Python and FFmpeg, asks for a password and the camera,
 | Setting | Meaning |
 | --- | --- |
 | `storage.path` | Where clips go. Default `C:/CameraRecordings`. |
-| `storage.retention_days` | Delete clips older than this. `0` keeps them until space runs low. |
+| `storage.retention_days` | Delete clips older than this. `0` keeps them until space runs low. (Also in Settings.) |
 | `storage.min_free_gb` | Always leave this much space free, deleting the oldest clips if needed. |
 | `server.port` | Port for the viewer and the app. Default 8080. |
 | `server.https_cert`, `server.https_key` | Paths to a certificate and key to switch on HTTPS. |
@@ -108,7 +112,7 @@ internet unencrypted. Five wrong passwords from one address locks it out for 15 
 ## Troubleshooting
 
 - **Logs:** `C:\ProgramData\HomeCamera\logs\camhub.log` (Start menu > Home Camera > Settings and logs folder)
-- **Camera not found, or its address changed:** Start menu > Home Camera > Find camera again.
+- **Camera not found, or its address changed:** Settings > Cameras in the viewer, then **Find and save**.
 - **Change the password:** Start menu > Home Camera > Change password. This signs out every
   device, including the phone.
 - **No pan and tilt buttons:** the camera didn't answer ONVIF on the given port. Check the

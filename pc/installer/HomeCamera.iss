@@ -257,8 +257,8 @@ begin
   if LoadStringFromFile(ResultFile, Lines) then SetupResult := Lines;
   if SetupCode = 3 then
     SetupResult := 'Home Camera is installed, but it couldn''t find your camera''s video yet.' + #13#10#13#10 +
-      'Check the camera is on and the IP address and password are right, then open ' +
-      'Start > Home Camera > Find camera again.';
+      'Check the camera is on, then open Home Camera, go to Settings > Cameras, ' +
+      'check the IP address and password, and press Find and save.';
 
   WizardForm.StatusLabel.Caption := 'Starting Home Camera...';
   Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\tools\register-task.ps1') +

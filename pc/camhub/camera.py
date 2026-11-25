@@ -192,6 +192,9 @@ class Camera:
 
     def stop(self):
         self._stop.set()
+        proc = getattr(self, "_proc", None)
+        if proc and proc.poll() is None:
+            proc.kill()
         with self._lock:
             if self.clip:
                 self._close_clip()
@@ -230,6 +233,7 @@ class Camera:
             try:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                self._proc = proc
             except FileNotFoundError:
                 log.error("ffmpeg was not found. Install it and try again.")
                 time.sleep(30)

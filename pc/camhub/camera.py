@@ -238,6 +238,7 @@ class Camera:
         self.stream_problem = None    # why the main stream isn't running, shown in the viewer
         self.analyzer_problem = None
         self._use_ffmpeg_decoder = False
+        self._connecting_since = None
 
         self._frame = None          # latest sub stream frame (BGR)
         self._frame_id = 0
@@ -255,6 +256,7 @@ class Camera:
     # ---- lifecycle ----------------------------------------------------------
 
     def start(self):
+        self._connecting_since = time.monotonic()
         threading.Thread(target=self._stream_loop, name=f"stream-{self.id}", daemon=True).start()
         threading.Thread(target=self._analyze_loop, name=f"analyze-{self.id}", daemon=True).start()
         if self.ptz is not None:
@@ -290,11 +292,16 @@ class Camera:
         """A short reason the camera is offline, or None."""
         if self.stream_online and self.analyzer_online:
             return None
+        if not self.cfg.get("main_url"):
+            return "No video address saved yet. Open Settings > Cameras and press Find and save."
         parts = []
         if not self.stream_online and self.stream_problem:
             parts.append("Recording stream: " + self.stream_problem)
         if not self.analyzer_online and self.analyzer_problem:
             parts.append("Live picture: " + self.analyzer_problem)
+        if not parts and self._connecting_since and time.monotonic() - self._connecting_since > 30:
+            return ("Still waiting for video from the camera after 30 seconds. "
+                    "Check it isn't in use by too many apps, and see the log for details.")
         return " ".join(parts) or "Connecting to the camera…"
 
     # ---- main stream: memory buffer and clip writing ------------------------

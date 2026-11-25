@@ -253,6 +253,8 @@ def test_live_picture_falls_back_to_ffmpeg(tmp_path, monkeypatch):
         available = False
 
     cam = cam_mod.Camera(c, Storage(cfg), EventBus(), NoPeople())
+    assert cam.problem().startswith("No video address")
+    c["main_url"] = str(video)
     assert cam.problem() == "Connecting to the camera…"
     threading_start = time.monotonic()
     import threading

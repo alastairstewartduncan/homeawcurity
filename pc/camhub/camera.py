@@ -48,6 +48,73 @@ def _input_args(url):
     return ["-re", "-stream_loop", "-1", "-i", url]
 
 
+class FfmpegCapture:
+    """Decodes a stream with our own ffmpeg, for when OpenCV can't open it itself.
+
+    Offers the parts of cv2.VideoCapture the analyzer uses: read(), get(), release().
+    """
+
+    MAX_WIDTH = 960
+
+    def __init__(self, url):
+        from .discovery import probe
+
+        self.proc = None
+        info = probe(url, timeout=10) if _is_rtsp(url) else self._probe_file(url)
+        if not info:
+            return
+        w, h = info[0], info[1]
+        if w > self.MAX_WIDTH:
+            h = int(h * self.MAX_WIDTH / w) // 2 * 2
+            w = self.MAX_WIDTH
+        self.size = (w, h)
+        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", *_input_args(url), "-map", "0:v:0", "-an",
+               "-vf", f"scale={w}:{h}", "-pix_fmt", "bgr24", "-f", "rawvideo", "pipe:1"]
+        try:
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                         stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        except OSError:
+            self.proc = None
+
+    @staticmethod
+    def _probe_file(path):
+        from .discovery import _ffprobe
+
+        try:
+            r = subprocess.run([_ffprobe(), "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                "stream=width,height", "-of", "csv=p=0", path],
+                               capture_output=True, text=True, timeout=15, creationflags=NO_WINDOW)
+            w, h = r.stdout.strip().split(",")[:2]
+            return int(w), int(h), None
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return None
+
+    def isOpened(self):
+        return self.proc is not None
+
+    def read(self):
+        w, h = self.size
+        need = w * h * 3
+        buf = bytearray()
+        while len(buf) < need:
+            chunk = self.proc.stdout.read(need - len(buf))
+            if not chunk:
+                return False, None
+            buf += chunk
+        return True, np.frombuffer(bytes(buf), np.uint8).reshape(h, w, 3)
+
+    def get(self, prop):
+        return 0
+
+    def set(self, *a):
+        return False
+
+    def release(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait()
+
+
 class ClipWriter:
     """Pipes MPEG-TS into ffmpeg, which writes an MP4 without re-encoding the video."""
 
@@ -168,6 +235,9 @@ class Camera:
         self.last_activity = 0.0
         self.stream_online = False
         self.analyzer_online = False
+        self.stream_problem = None    # why the main stream isn't running, shown in the viewer
+        self.analyzer_problem = None
+        self._use_ffmpeg_decoder = False
 
         self._frame = None          # latest sub stream frame (BGR)
         self._frame_id = 0
@@ -207,6 +277,7 @@ class Camera:
                 "online": self.stream_online and self.analyzer_online,
                 "stream_online": self.stream_online,
                 "analyzer_online": self.analyzer_online,
+                "problem": self.problem(),
                 "recording": self.clip is not None,
                 "recording_clip": self.clip.clip_id if self.clip else None,
                 "motion_level": round(self.motion_level, 2),
@@ -214,6 +285,17 @@ class Camera:
                 "ptz_error": self.ptz.error if self.ptz else "Not configured",
                 "person_detection": self.detector.available,
             }
+
+    def problem(self):
+        """A short reason the camera is offline, or None."""
+        if self.stream_online and self.analyzer_online:
+            return None
+        parts = []
+        if not self.stream_online and self.stream_problem:
+            parts.append("Recording stream: " + self.stream_problem)
+        if not self.analyzer_online and self.analyzer_problem:
+            parts.append("Live picture: " + self.analyzer_problem)
+        return " ".join(parts) or "Connecting to the camera…"
 
     # ---- main stream: memory buffer and clip writing ------------------------
 
@@ -235,9 +317,11 @@ class Camera:
                                         stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
                 self._proc = proc
             except FileNotFoundError:
+                self.stream_problem = "ffmpeg is missing. Reinstall Home Camera."
                 log.error("ffmpeg was not found. Install it and try again.")
                 time.sleep(30)
                 continue
+            self.stream_problem = None
             threading.Thread(target=self._log_stderr, args=(proc, "main stream"), daemon=True).start()
             packets = TsPacketizer()
             self.ts = TsStream()
@@ -250,6 +334,7 @@ class Camera:
                 if not got_data:
                     got_data = True
                     self.stream_online = True
+                    self.stream_problem = None
                     backoff = 2
                     log.info("[%s] Main stream connected", self.id)
                 now = time.monotonic()
@@ -268,16 +353,20 @@ class Camera:
                 if self.clip:
                     self._close_clip()
             if not self._stop.is_set():
+                if not got_data and not self.stream_problem:
+                    self.stream_problem = "the camera sent no video."
                 log.warning("[%s] Main stream lost, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 60)
 
-    @staticmethod
-    def _log_stderr(proc, what):
+    def _log_stderr(self, proc, what):
         for line in proc.stderr:
             text = line.decode(errors="replace").strip()
             if text:
-                log.warning("ffmpeg (%s): %s", what, redact(text))
+                text = redact(text)
+                log.warning("[%s] ffmpeg (%s): %s", self.id, what, text)
+                if not self.stream_online:
+                    self.stream_problem = text[-200:]
 
     def _start_clip(self, trigger, person, frame, boxes):
         """Called with the lock held."""
@@ -333,9 +422,21 @@ class Camera:
     # ---- sub stream: motion, people and live view ---------------------------
 
     def _open_capture(self, url):
-        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-        cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-        return cap if cap.isOpened() else None
+        """Opens the stream with OpenCV, or with our own ffmpeg if OpenCV can't."""
+        if not self._use_ffmpeg_decoder:
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+            if cap.isOpened():
+                return cap
+            cap.release()
+            log.warning("[%s] OpenCV couldn't open the stream, so ffmpeg will decode it instead", self.id)
+            self._use_ffmpeg_decoder = True
+        cap = FfmpegCapture(url)
+        if cap.isOpened():
+            return cap
+        # Try OpenCV again next time, in case the camera was just busy.
+        self._use_ffmpeg_decoder = False
+        return None
 
     def _analyze_loop(self):
         backoff = 2
@@ -346,13 +447,13 @@ class Camera:
                 continue
             cap = self._open_capture(url)
             if cap is None:
+                self.analyzer_problem = "couldn't open the camera's video. Check its IP address and login."
                 log.warning("[%s] Could not open the stream for motion detection, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 60)
                 continue
             log.info("[%s] Motion detection running", self.id)
-            backoff = 2
-            self.analyzer_online = True
+            got_frame = False
             is_file = not _is_rtsp(url)
             src_fps = cap.get(cv2.CAP_PROP_FPS) or 25
             if not 1 <= src_fps <= 120:
@@ -374,6 +475,11 @@ class Camera:
                             continue
                     break
                 failures = 0
+                if not got_frame:
+                    got_frame = True
+                    backoff = 2
+                    self.analyzer_online = True
+                    self.analyzer_problem = None
                 with self._frame_cond:
                     self._frame = frame
                     self._frame_id += 1
@@ -402,9 +508,15 @@ class Camera:
                         time.sleep(delay)
             cap.release()
             self.analyzer_online = False
+            if not got_frame:
+                self.analyzer_problem = "the camera's video opened but no pictures could be decoded."
+                if not isinstance(cap, FfmpegCapture):
+                    log.warning("[%s] OpenCV gave no pictures, so ffmpeg will decode it instead", self.id)
+                    self._use_ffmpeg_decoder = True
             if not self._stop.is_set():
                 log.warning("[%s] Motion stream lost, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)
+                backoff = min(backoff * 2, 60)
 
     def _zone_mask(self, shape):
         zones = self.motion.get("ignore_zones") or []

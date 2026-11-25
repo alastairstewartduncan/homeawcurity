@@ -211,3 +211,57 @@ def test_camera_setup_api(tmp_path, monkeypatch):
     saved = json.loads(cfg_path.read_text())
     assert saved["cameras"] == [] and saved["storage"]["retention_days"] == 7
     assert client.post("/api/cameras/setup", json={"ip": "bad ip!"}).status_code == 400
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_live_picture_falls_back_to_ffmpeg(tmp_path, monkeypatch):
+    """If OpenCV can't open the camera's video, ffmpeg decodes it, and the viewer is told why
+    a camera is offline."""
+    import time
+
+    import cv2
+
+    from camhub import camera as cam_mod
+    from camhub.config import Config
+    from camhub.events import EventBus
+    from camhub.storage import Storage
+
+    video = tmp_path / "sub.mkv"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=10",
+                    "-t", "4", "-c:v", "libx264", "-g", "10", str(video)], check=True)
+
+    class NoOpenCV:
+        def __init__(self, *a):
+            pass
+
+        def isOpened(self):
+            return False
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(cv2, "VideoCapture", NoOpenCV)
+    from camhub.config import DEFAULT_MOTION
+
+    (tmp_path / "config.json").write_text(json.dumps({"storage": {"path": str(tmp_path / "rec")},
+                                                       "cameras": []}))
+    cfg = Config(str(tmp_path / "config.json"))
+    c = {"id": "garden", "name": "Garden", "main_url": "", "sub_url": str(video),
+         "motion": dict(DEFAULT_MOTION)}
+
+    class NoPeople:
+        available = False
+
+    cam = cam_mod.Camera(c, Storage(cfg), EventBus(), NoPeople())
+    assert cam.problem() == "Connecting to the camera…"
+    threading_start = time.monotonic()
+    import threading
+    threading.Thread(target=cam._analyze_loop, daemon=True).start()
+    while not cam.analyzer_online and time.monotonic() - threading_start < 20:
+        time.sleep(0.2)
+    assert cam.analyzer_online and cam._use_ffmpeg_decoder
+    cam.wait_frame(0, timeout=5)
+    assert cam._frame is not None and cam._frame.shape == (360, 640, 3)
+    cam.stream_problem = "Connection refused"
+    assert cam.problem() == "Recording stream: Connection refused"
+    cam.stop()

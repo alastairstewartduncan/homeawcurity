@@ -119,3 +119,5 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .find-log { background: var(--panel-2); border-radius: 8px; padding: 10px; font-size: 12px; white-space: pre-wrap; max-height: 220px; overflow: auto; margin: 0; }
 .empty .primary { margin-left: 8px; }
 .card.wide { grid-column: 1 / -1; }
+.video-wrap .why { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px;
+  background: rgba(0,0,0,.75); color: #fff; font-size: 13px; line-height: 1.4; word-break: break-word; }

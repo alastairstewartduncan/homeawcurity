@@ -259,6 +259,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
+        fun appVersion(): String = BuildConfig.VERSION_NAME
+
+        @JavascriptInterface
         fun changeServer() {
             runOnUiThread { showSetup(null) }
         }

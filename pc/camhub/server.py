@@ -9,7 +9,7 @@ import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
-from . import auth
+from . import BUILT, COMMIT, __version__, auth
 
 log = logging.getLogger("camhub.server")
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -112,6 +112,7 @@ def create_app(hub):
         return {
             "person_detection": hub.detector.available,
             "cameras": [c.status() for c in hub.cameras.values()],
+            "version": {"version": __version__, "commit": COMMIT, "built": BUILT},
             "storage": hub.storage.usage(),
             "retention_days": config.storage.get("retention_days"),
             "min_free_gb": config.storage.get("min_free_gb"),

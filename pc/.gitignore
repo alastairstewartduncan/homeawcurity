@@ -9,3 +9,4 @@ build/
 dist/
 installer/output/
 installer/ffmpeg/
+camhub/_build.py

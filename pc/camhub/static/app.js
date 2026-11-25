@@ -110,6 +110,7 @@ function updateLive() {
   }
   const s = status.storage;
   if (s) $('#storage').textContent = `Recordings ${fmtBytes(s.recordings_bytes)} · ${fmtBytes(s.disk_free)} free`;
+  $('#version').textContent = 'v' + ((status.version || {}).version || 'dev');
 }
 
 function setupPtz(el, camId) {
@@ -245,6 +246,28 @@ async function loadSettings() {
     wrap.appendChild(settingsCard(c, s.motion));
   }
   wrap.appendChild(storageCard());
+  wrap.appendChild(aboutCard());
+}
+
+function versionText() {
+  const v = (status.version || {}).version || 'dev';
+  return v === 'dev' ? 'development copy' : 'version ' + v;
+}
+
+function aboutCard() {
+  const v = status.version || {};
+  const card = document.createElement('div'); card.className = 'card';
+  const phone = window.HomeCamera && window.HomeCamera.appVersion ? window.HomeCamera.appVersion() : '';
+  const built = v.built ? new Date(v.built) : null;
+  card.innerHTML = `<h2>About</h2>
+    <p><b>Home Camera ${esc(versionText())}</b> on this PC${built && !isNaN(built) ?
+      `, built ${esc(built.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}))}` : ''}.</p>
+    ${phone ? `<p>Phone app: version ${esc(phone)}.</p>` : ''}
+    <p class="muted">Each new download has a higher version number. The newest number is shown on the
+      <a href="https://github.com/alastairstewartduncan/homeawcurity/releases/tag/latest" target="_blank" rel="noopener">download page</a>.
+      To update, run the newest HomeCameraSetup.exe on this PC. Your settings and recordings are kept.</p>
+    ${v.commit ? `<p class="muted">Build ${esc(v.commit)}</p>` : ''}`;
+  return card;
 }
 
 function esc(t) { const d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }

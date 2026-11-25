@@ -134,8 +134,11 @@ jobs:
             Stop-Process $p -Force
             $pubs | ForEach-Object { Stop-Process $_ -Force -ErrorAction SilentlyContinue }
             Stop-Process $mtx -Force
-            Remove-Item dist/camhub/ffmpeg.exe, dist/camhub/ffprobe.exe
             Get-Content ci/logs/camhub.log -ErrorAction SilentlyContinue
+            # camhub's own ffmpeg children outlive it when it is killed, so stop them before cleaning up.
+            Get-Process ffmpeg, ffprobe -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep 2
+            Remove-Item dist/camhub/ffmpeg.exe, dist/camhub/ffprobe.exe
           }
           if (-not $online) { throw "the camera never came online in camhub.exe" }
 

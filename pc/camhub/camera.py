@@ -266,6 +266,8 @@ class Camera:
         self.analyzer_problem = None
         self._use_ffmpeg_decoder = False
         self._connecting_since = None
+        self._sub_failures = 0      # tries in a row the small stream gave no pictures
+        self._sub_failed_url = None
 
         self._frame = None          # latest sub stream frame (BGR)
         self._frame_id = 0
@@ -517,15 +519,39 @@ class Camera:
         self._use_ffmpeg_decoder = False
         return None
 
+    # After this many tries in a row with no pictures from the small stream, the live picture
+    # and motion detection use the main stream instead.
+    SUB_GIVE_UP = 2
+
+    def _analyze_url(self):
+        """The stream to watch: the small one, unless it keeps giving no pictures."""
+        sub, main = self.cfg.get("sub_url"), self.cfg.get("main_url")
+        if sub != self._sub_failed_url:
+            self._sub_failed_url, self._sub_failures = sub, 0
+        if sub and (self._sub_failures < self.SUB_GIVE_UP or not main):
+            return sub
+        if sub and self._sub_failures == self.SUB_GIVE_UP:
+            self._sub_failures += 1  # only say it once
+            log.warning("[%s] The small stream gives no pictures, so the main stream will be used for "
+                        "the live picture and motion detection. Press Find and save in Settings > Cameras "
+                        "to look for a better small stream.", self.id)
+        return main
+
     def _analyze_loop(self):
         backoff = 2
         while not self._stop.is_set():
-            url = self.cfg.get("sub_url") or self.cfg.get("main_url")
+            url = self._analyze_url()
             if not url:
                 time.sleep(5)
                 continue
+            using_sub = url == self.cfg.get("sub_url") and url != self.cfg.get("main_url")
             cap = self._open_capture(url)
             if cap is None:
+                if using_sub:
+                    self._sub_failures += 1
+                    if self._sub_failures >= self.SUB_GIVE_UP:
+                        self._use_ffmpeg_decoder = False
+                        continue
                 self.analyzer_problem = "couldn't open the camera's video. Check its IP address and login."
                 log.warning("[%s] Could not open the stream for motion detection, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)
@@ -557,6 +583,8 @@ class Camera:
                 if not got_frame:
                     got_frame = True
                     backoff = 2
+                    if using_sub:
+                        self._sub_failures = 0
                     self.analyzer_online = True
                     self.analyzer_problem = None
                 with self._frame_cond:
@@ -592,6 +620,11 @@ class Camera:
                 if not isinstance(cap, FfmpegCapture):
                     log.warning("[%s] OpenCV gave no pictures, so ffmpeg will decode it instead", self.id)
                     self._use_ffmpeg_decoder = True
+                elif using_sub:
+                    self._sub_failures += 1
+                    if self._sub_failures >= self.SUB_GIVE_UP:
+                        self._use_ffmpeg_decoder = False
+                        continue
             if not self._stop.is_set():
                 log.warning("[%s] Motion stream lost, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)

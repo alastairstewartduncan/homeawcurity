@@ -86,13 +86,22 @@ class FfmpegCapture:
             h = int(h * self.MAX_WIDTH / w) // 2 * 2
             w = self.MAX_WIDTH
         self.size = (w, h)
-        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", *_input_args(url), "-map", "0:v:0", "-an",
+        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", *_input_args(url, wallclock=_is_rtsp(url)),
+               "-map", "0:v:0", "-an",
                "-vf", f"scale={w}:{h}", "-pix_fmt", "bgr24", "-f", "rawvideo", "pipe:1"]
         try:
-            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                          stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         except OSError:
             self.proc = None
+            return
+        threading.Thread(target=self._log_stderr, daemon=True).start()
+
+    def _log_stderr(self):
+        for line in self.proc.stderr:
+            text = line.decode(errors="replace").strip()
+            if text and not text.startswith("Last message repeated"):
+                log.warning("ffmpeg (live picture): %s", redact(text))
 
     @staticmethod
     def _probe_file(path):
@@ -329,11 +338,19 @@ class Camera:
         {"wallclock": False, "audio": True},
         {"wallclock": True, "audio": True},
         {"wallclock": True, "audio": False},
+        # Last resort: make new video. Uses more of the PC's processor, but every frame gets a
+        # proper timestamp.
+        {"wallclock": True, "audio": False, "encode": True},
     ]
 
     def _stream_cmd(self, url, mode):
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", *_input_args(url, mode["wallclock"]),
-               "-map", "0:v:0", "-c:v", "copy"]
+               "-map", "0:v:0"]
+        if mode.get("encode"):
+            cmd += ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-crf", "23",
+                    "-g", "50", "-fps_mode", "passthrough"]
+        else:
+            cmd += ["-c:v", "copy"]
         if mode["audio"]:
             # Cameras often send G.711 audio, which MP4 can't hold. AAC is tiny to make.
             cmd += ["-map", "0:a:0?", "-c:a", "aac", "-b:a", "64k", "-ar", "16000"]
@@ -354,9 +371,10 @@ class Camera:
             mode = self.STREAM_MODES[mode_i]
             cmd = self._stream_cmd(url, mode)
             self._stream_errors = []
-            log.info("[%s] Connecting to main stream%s%s", self.id,
+            log.info("[%s] Connecting to main stream%s%s%s", self.id,
                      " (timestamps from the PC clock)" if mode["wallclock"] else "",
-                     ", without sound" if not mode["audio"] else "")
+                     ", without sound" if not mode["audio"] else "",
+                     ", re-encoding the video" if mode.get("encode") else "")
             try:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)

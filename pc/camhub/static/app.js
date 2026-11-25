@@ -278,6 +278,7 @@ function cameraForm(c) {
       <label>ONVIF port<input name="onvif_port" value="${esc(c ? c.onvif_port : 8899)}" inputmode="numeric"></label>
     </div>
     <div class="toolbar"><button class="primary find">Find and save</button>
+      ${c && c.configured ? '<button class="diag">Check video</button>' : ''}
       ${c ? '<button class="danger remove">Remove camera</button>' : ''}</div>
     <pre class="find-log hidden"></pre>`;
   const val = (n) => $(`[name=${n}]`, f).value;
@@ -297,6 +298,19 @@ function cameraForm(c) {
       }
     } catch (e) { log.textContent = e.message; }
     btn.disabled = false; btn.textContent = 'Find and save';
+  });
+  const diag = $('.diag', f);
+  if (diag) diag.addEventListener('click', async () => {
+    const log = $('.find-log', f);
+    diag.disabled = true; diag.textContent = 'Checking… (a few minutes)';
+    log.classList.remove('hidden');
+    log.textContent = 'Trying different ways to read the camera\'s video. The camera pauses while this runs.';
+    try {
+      const r = await api(`/api/cameras/${c.id}/diagnose`, {method: 'POST'});
+      log.textContent = r.log.join('\n');
+      try { await navigator.clipboard.writeText(log.textContent); toast('Result copied, ready to paste'); } catch (e) {}
+    } catch (e) { log.textContent = e.message; }
+    diag.disabled = false; diag.textContent = 'Check video';
   });
   const rm = $('.remove', f);
   if (rm) rm.addEventListener('click', async () => {

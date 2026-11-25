@@ -267,6 +267,38 @@ def create_app(hub):
         log.append("Camera found and saved. It's starting now.")
         return {"ok": True, "log": log, "camera": camera_summary(cfg)}
 
+    @app.post("/api/cameras/{cam_id}/diagnose")
+    async def diagnose_camera(cam_id: str):
+        """Checks how the camera's video can be read, for when it won't come online.
+
+        The camera is paused while this runs, as many cameras allow only a few connections.
+        """
+        import copy
+
+        from .camera import redact
+        from .discovery import diagnose, list_paths
+
+        c = config.camera(cam_id)
+        if not c:
+            raise HTTPException(404, "No such camera")
+        cfg = copy.deepcopy(c)
+        log = []
+        cam = hub.cameras.get(cam_id)
+        if cam:
+            await asyncio.to_thread(cam.stop)
+        try:
+            await asyncio.to_thread(diagnose, cfg.get("main_url"), cfg.get("sub_url"), log.append)
+            on = cfg.get("onvif") or {}
+            if on.get("host"):
+                await asyncio.to_thread(list_paths, on["host"], on.get("username", ""), on.get("password", ""),
+                                        554, log.append)
+        finally:
+            await asyncio.to_thread(hub.put_camera, cfg)
+        log = [redact(line) for line in log]
+        for line in log:
+            logging.getLogger("camhub.diagnose").info("[%s] %s", cam_id, line)
+        return {"log": log}
+
     @app.delete("/api/cameras/{cam_id}")
     async def delete_camera(cam_id: str):
         if not config.camera(cam_id):

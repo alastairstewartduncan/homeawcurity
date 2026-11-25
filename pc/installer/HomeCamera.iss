@@ -165,6 +165,14 @@ begin
     False, '');
   StoragePage.Add('');
   StoragePage.Values[0] := 'C:\CameraRecordings';
+
+  { Answers given on the command line (used for silent installs) fill in the pages. }
+  PasswordPage.Values[0] := ExpandConstant('{param:VIEWERPASSWORD|}');
+  PasswordPage.Values[1] := PasswordPage.Values[0];
+  CameraPage.Values[0] := ExpandConstant('{param:CAMERAIP|}');
+  CameraPage.Values[1] := ExpandConstant('{param:CAMERAUSER|admin}');
+  CameraPage.Values[2] := ExpandConstant('{param:CAMERAPASSWORD|}');
+  StoragePage.Values[0] := ExpandConstant('{param:STORAGE|C:\CameraRecordings}');
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -178,6 +186,8 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  { A silent install can't show messages, so never hold it on a page. }
+  if WizardSilent then Exit;
   if CurPageID = PasswordPage.ID then
   begin
     if (PasswordPage.Values[0] = '') and (PasswordPage.Values[1] = '') and IsUpgrade then

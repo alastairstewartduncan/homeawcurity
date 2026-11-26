@@ -59,6 +59,10 @@ class Hub:
         self.health = HealthMonitor(self)
         self.backup = Backup(config, self.storage, self.events)
         self.detector = PersonDetector()
+        # Smart alerts: strangers and family, your cars, parcels, lines and loitering.
+        from .smart import SmartHub
+        self.smart = SmartHub(self)
+        self.events.enrich = lambda e: self.presence.tag_event(self.smart.tag_event(e))
         self.cameras = {}
         self.started = False
         for c in config.cameras:
@@ -83,7 +87,10 @@ class Hub:
 
         ptz = OnvifPtz(on["host"], int(on.get("port") or 8888), on.get("username", ""),
                        on.get("password", ""), on_port_found=save_port) if on.get("host") else None
-        return Camera(c, self.storage, self.events, self.detector, ptz)
+        cam = Camera(c, self.storage, self.events, self.detector, ptz)
+        if getattr(self, "smart", None) is not None:
+            cam.smart = self.smart.watcher(cam)
+        return cam
 
     def start(self):
         self.started = True

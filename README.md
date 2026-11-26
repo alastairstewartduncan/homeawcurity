@@ -181,6 +181,28 @@ The **AI** tab lets you add your own AI helpers that look at the camera picture 
 Each look is one AI request, so a cloud AI is charged per look. Use the quiet time and the "Every few minutes"
 setting to keep costs down, or run a local model with Ollama for free.
 
+## Smart alerts (Smart tab)
+
+Everything here runs on the PC. No pictures are sent anywhere.
+
+- **Family and friends.** Add the people who live here (a few photos each, or name faces from
+  "Faces seen lately"). Turn on *Recognise faces* and "person seen" alerts become **stranger**
+  alerts, with no alert for the people you've named. If no face can be seen, you choose whether
+  it still alerts.
+- **Your cars.** Park your car in view and press *Add car* (add a night picture too). Turn on
+  *Alert when an unknown vehicle stops* to hear about vehicles that stop and aren't yours. Cars
+  driving past don't count. Cars are told apart by colour, so a car just like yours can fool it.
+- **Parcel watch.** Draw the doorstep. After someone visits, a box left there gives a
+  *parcel delivered* alert; if it's then taken, *parcel taken* (an alert when nobody's home,
+  or always if you choose).
+- **Lines.** Draw a line, such as across the drive, and get an alert when someone (or a car)
+  crosses it, either way or only in the arrow's direction.
+- **Loitering areas.** Draw an area, such as around the car, and get an alert when someone stays
+  there longer than the time you pick.
+
+Smart alerts follow home and away like other alerts. Recordings show who and what was seen.
+Lines, areas and the doorstep stay in place on the picture, so keep the camera still (patrol off).
+
 ## Automatic updates
 
 The PC app checks the download page every few hours. A newer HomeCameraSetup.exe is downloaded,

@@ -81,6 +81,13 @@ foreach ($f in @("deploy.prototxt", "mobilenet_iter_73000.caffemodel")) {
     $dest = Join-Path $models $f
     if (-not (Test-Path $dest)) { Invoke-WebRequest "$base/$f" -OutFile $dest -UseBasicParsing }
 }
+# Face recognition (Smart tab): finding faces, and telling family from strangers.
+$zoo = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
+foreach ($f in @("face_detection_yunet/face_detection_yunet_2023mar.onnx",
+                 "face_recognition_sface/face_recognition_sface_2021dec.onnx")) {
+    $dest = Join-Path $models (Split-Path $f -Leaf)
+    if (-not (Test-Path $dest)) { Invoke-WebRequest "$zoo/$f" -OutFile $dest -UseBasicParsing }
+}
 
 # ---- 4. Settings ---------------------------------------------------------------
 Step "Settings"

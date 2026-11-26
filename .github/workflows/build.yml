@@ -95,6 +95,13 @@ jobs:
           Invoke-WebRequest "$base/deploy.prototxt" -OutFile models/deploy.prototxt
           Invoke-WebRequest "$base/mobilenet_iter_73000.caffemodel" -OutFile models/mobilenet_iter_73000.caffemodel
 
+      - name: Download the face recognition models
+        run: |
+          $zoo = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
+          Invoke-WebRequest "$zoo/face_detection_yunet/face_detection_yunet_2023mar.onnx" -OutFile models/face_detection_yunet_2023mar.onnx
+          Invoke-WebRequest "$zoo/face_recognition_sface/face_recognition_sface_2021dec.onnx" -OutFile models/face_recognition_sface_2021dec.onnx
+          Get-ChildItem models
+
       - name: Stamp the version
         run: |
           $built = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -163,6 +170,10 @@ jobs:
             if ($online) {
               $snap = Invoke-WebRequest "http://localhost:8080/api/cameras/$($cam.id)/snapshot.jpg" -Headers $h -UseBasicParsing
               "Snapshot: $($snap.RawContentLength) bytes"
+              # The face recognition models made it into camhub.exe and load.
+              $smart = Invoke-RestMethod http://localhost:8080/api/smart -Headers $h
+              "Face recognition ready: $($smart.faces_available)"
+              if (-not $smart.faces_available) { throw "face recognition models did not load in camhub.exe" }
             }
           } finally {
             Stop-Process $p -Force

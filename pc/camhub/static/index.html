@@ -7,6 +7,7 @@
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="stylesheet" href="/static/timeline.css">
+<link rel="stylesheet" href="/static/smart.css">
 <script src="/static/timeline.js" defer></script>
 <script src="/static/privacy.js" defer></script>
 </head>
@@ -16,6 +17,7 @@
   <nav>
     <button data-tab="live" class="active">Live</button>
     <button data-tab="recordings">Recordings</button>
+    <button data-tab="smart">Smart</button>
     <button data-tab="ai">AI</button>
     <button data-tab="settings">Settings</button>
   </nav>
@@ -44,6 +46,10 @@
       <select id="cam-filter"></select>
     </div>
     <div class="clips" id="clips"></div>
+  </section>
+
+  <section id="tab-smart" class="hidden">
+    <div class="settings" id="smart"></div>
   </section>
 
   <section id="tab-ai" class="hidden">
@@ -132,5 +138,6 @@
 <script src="/static/backup.js"></script>
 <script src="/static/updates.js"></script>
 <script src="/static/ai.js"></script>
+<script src="/static/smart.js"></script>
 </body>
 </html>

@@ -504,6 +504,9 @@ def create_app(hub):
 
     from .ai_api import add_ai_routes
     add_ai_routes(app, hub)
+    if getattr(hub, "smart", None) is not None:
+        from .smart_api import add_smart_routes
+        add_smart_routes(app, hub)
 
     # ---- live events (used for phone notifications) ---------------------------
 

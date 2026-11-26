@@ -54,6 +54,7 @@ function showTab(name) {
   if (name === 'recordings') loadDays();
   if (name === 'settings') loadSettings();
   if (name === 'ai' && window.loadAi) window.loadAi();
+  if (name === 'smart' && window.loadSmart) window.loadSmart();
 }
 $$('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 $('#logout').addEventListener('click', async () => {
@@ -450,7 +451,8 @@ function renderClips() {
         <span class="badge ${c.person ? 'person' : ''}">${c.person ? 'Person' : 'Motion'}</span></div>
       <div class="meta"><span>${t.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}${multi ? ' · ' + camName(c.camera) : ''}</span>
       <span class="muted">${fmtDur(c.duration)}</span></div>
-      ${c.summary ? `<div class="ai-summary" title="Described by AI">${esc(c.summary)}</div>` : ''}`;
+      ${c.summary ? `<div class="ai-summary" title="Described by AI">${esc(c.summary)}</div>` : ''}
+      ${(c.seen || []).length ? `<div class="clip-seen">${c.seen.map(s => `<span class="pill">${esc(s)}</span>`).join(' ')}</div>` : ''}`;
     b.addEventListener('click', () => openClip(c.id));
     wrap.appendChild(b);
   }
@@ -771,6 +773,7 @@ function listen() {
     }
     refreshStatus();
     if (window.onAlertEvent) window.onAlertEvent(e);
+    if (e.smart && window.onSmartEvent) window.onSmartEvent(e);
     if (e.type === 'clip_saved' && !$('#tab-recordings').classList.contains('hidden') && !playing) loadDays();
   };
 }

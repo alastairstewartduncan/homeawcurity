@@ -253,6 +253,10 @@ class Camera:
         self.events = events
         self.detector = detector
         self.ptz = ptz
+        from .audio import AudioRelay
+        self.audio = AudioRelay(self.id, lambda: self.cfg.get("sub_url") or self.cfg.get("main_url"))
+        from .talk import Talker
+        self.talker = Talker(self.id, lambda: self.cfg.get("main_url"))
 
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -288,11 +292,24 @@ class Camera:
         self._connecting_since = time.monotonic()
         threading.Thread(target=self._stream_loop, name=f"stream-{self.id}", daemon=True).start()
         threading.Thread(target=self._analyze_loop, name=f"analyze-{self.id}", daemon=True).start()
+        self.talker.start()
         if self.ptz is not None:
-            threading.Thread(target=self.ptz.connect, name=f"ptz-{self.id}", daemon=True).start()
+            threading.Thread(target=self._ptz_loop, name=f"ptz-{self.id}", daemon=True).start()
+
+    def _ptz_loop(self):
+        # The camera may be asleep or rebooting when we start, so keep trying until pan and
+        # tilt answer. Otherwise the arrows would stay hidden until Home Camera restarts.
+        wait = 15
+        while not self._stop.is_set() and not self.ptz.available:
+            if self.ptz.connect():
+                break
+            self._stop.wait(wait)
+            wait = min(wait * 2, 300)
 
     def stop(self):
         self._stop.set()
+        self.audio.stop()
+        self.talker.stop()
         proc = getattr(self, "_proc", None)
         if proc and proc.poll() is None:
             proc.kill()
@@ -314,6 +331,8 @@ class Camera:
                 "motion_level": round(self.motion_level, 2),
                 "ptz": bool(self.ptz and self.ptz.available),
                 "ptz_error": self.ptz.error if self.ptz else "Not configured",
+                "ptz_zoom": bool(self.ptz and self.ptz.available and self.ptz.zoom),
+                "talk": bool(self.talker.supported),
                 "person_detection": self.detector.available,
             }
 

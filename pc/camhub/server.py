@@ -159,10 +159,62 @@ def create_app(hub):
         try:
             if body.get("action") == "stop":
                 await asyncio.to_thread(cam.ptz.stop)
+            elif body.get("action") == "home":
+                await asyncio.to_thread(cam.ptz.home)
+            elif body.get("action") == "set_home":
+                await asyncio.to_thread(cam.ptz.set_home)
             else:
                 await asyncio.to_thread(cam.ptz.move, body.get("pan", 0), body.get("tilt", 0), body.get("zoom", 0))
         except Exception as e:
             raise HTTPException(502, f"Camera refused: {e}")
+        return {"ok": True}
+
+    @app.get("/api/cameras/{cam_id}/listen")
+    async def listen(cam_id: str, request: Request):
+        """The camera's sound as raw 16-bit mono samples (rate in X-Sample-Rate)."""
+        from .audio import RATE
+
+        cam = cam_or_404(cam_id)
+        q = cam.audio.subscribe()
+        try:
+            first = await asyncio.to_thread(q.get, True, 10)
+        except queue.Empty:
+            first = None
+        if first is None:
+            cam.audio.unsubscribe(q)
+            raise HTTPException(409, cam.audio.problem or "No sound came from the camera.")
+
+        async def sound():
+            try:
+                yield first
+                while not await request.is_disconnected():
+                    try:
+                        data = await asyncio.to_thread(q.get, True, 2)
+                    except queue.Empty:
+                        continue
+                    if data is None:
+                        break
+                    yield data
+            finally:
+                cam.audio.unsubscribe(q)
+
+        return StreamingResponse(sound(), media_type="application/octet-stream",
+                                 headers={"Cache-Control": "no-store", "X-Sample-Rate": str(RATE),
+                                          "X-Accel-Buffering": "no"})
+
+    @app.post("/api/cameras/{cam_id}/talk")
+    async def talk(cam_id: str, request: Request):
+        """A short piece of 8 kHz 16-bit mono sound to play through the camera's speaker."""
+        cam = cam_or_404(cam_id)
+        data = await request.body()
+        if len(data) > 64000:
+            raise HTTPException(413, "Too much sound in one go")
+        if cam.talker.supported is False:
+            raise HTTPException(409, cam.talker.problem or "This camera can't play sound from Home Camera.")
+        try:
+            await asyncio.to_thread(cam.talker.put, data)
+        except Exception as e:
+            raise HTTPException(409, f"Couldn't talk through the camera: {e}")
         return {"ok": True}
 
     @app.get("/api/cameras/{cam_id}/settings")
@@ -207,7 +259,7 @@ def create_app(hub):
             "ip": on.get("host", ""),
             "user": on.get("username", ""),
             "has_password": bool(on.get("password")),
-            "onvif_port": on.get("port", 8899),
+            "onvif_port": on.get("port", 8888),
             "configured": bool(c.get("main_url")),
         }
 
@@ -241,7 +293,7 @@ def create_app(hub):
         if not password and existing:
             password = (existing.get("onvif") or {}).get("password", "")
         try:
-            onvif_port = int(body.get("onvif_port") or 8899)
+            onvif_port = int(body.get("onvif_port") or 8888)
         except (TypeError, ValueError):
             raise HTTPException(400, "The ONVIF port must be a number")
 

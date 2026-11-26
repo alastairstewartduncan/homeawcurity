@@ -43,7 +43,7 @@ DEFAULT_CAMERA = {
     "name": "Front",
     "main_url": "",
     "sub_url": "",
-    "onvif": {"host": "", "port": 8899, "username": "admin", "password": ""},
+    "onvif": {"host": "", "port": 8888, "username": "admin", "password": ""},
     "motion": DEFAULT_MOTION,
 }
 

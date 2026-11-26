@@ -61,12 +61,28 @@
     <div class="cam-head"><span class="name"></span><span class="pill state"></span></div>
     <div class="video-wrap"><img alt="Live view"><div class="msg hidden">Connecting…</div><div class="why hidden"></div></div>
     <div class="cam-tools">
-      <div class="ptz hidden">
+      <div class="ptz hidden" title="Hold an arrow to turn the camera">
         <span class="c"></span><button data-d="0,1" aria-label="Up">▲</button><span class="c"></span>
-        <button data-d="-1,0" aria-label="Left">◀</button><span class="c"></span><button data-d="1,0" aria-label="Right">▶</button>
+        <button data-d="-1,0" aria-label="Left">◀</button><button class="home" aria-label="Home position" title="Go to the home position">⌂</button><button data-d="1,0" aria-label="Right">▶</button>
         <span class="c"></span><button data-d="0,-1" aria-label="Down">▼</button><span class="c"></span>
       </div>
-      <div class="speed ptz-speed hidden">Pan speed<input type="range" min="0.1" max="1" step="0.1" value="0.5"></div>
+      <div class="tool-col">
+        <div class="zoom" title="Zoom. You can also scroll the mouse wheel or pinch the picture.">
+          <button class="zoom-out" aria-label="Zoom out">−</button>
+          <span class="zoom-level">1×</span>
+          <button class="zoom-in" aria-label="Zoom in">+</button>
+        </div>
+        <div class="zoom lens hidden" title="The camera's own zoom lens. Hold a button down.">
+          <button class="lens-out" aria-label="Lens zoom out">−</button>
+          <span class="zoom-level">Lens</span>
+          <button class="lens-in" aria-label="Lens zoom in">+</button>
+        </div>
+        <div class="speed ptz-speed hidden">Turn speed<input type="range" min="0.1" max="1" step="0.1" value="0.5"></div>
+      </div>
+      <div class="tool-col">
+        <button class="listen" aria-pressed="false">🔈 Listen</button>
+        <button class="talk hidden" title="Hold to talk through the camera's speaker">🎤 Hold to talk</button>
+      </div>
       <div style="flex:1"></div>
       <button class="snap">Save picture</button>
       <button class="full">Full screen</button>

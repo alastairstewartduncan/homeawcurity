@@ -39,6 +39,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
+import org.json.JSONObject
 
 /**
  * Shows the recorder's pages (live view, recordings, settings) in a WebView, and adds
@@ -51,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private var web: WebView? = null
     private var fullView: View? = null
     private var fullCallback: WebChromeClient.CustomViewCallback? = null
+    private var locationRadius = 150
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -209,6 +214,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         web?.onResume()
+        // Coming back from the location settings screen: refresh the Home and away card.
+        web?.evaluateJavascript("window.onPhoneLocation && window.onPhoneLocation('{}')", null)
     }
 
     override fun onDestroy() {
@@ -243,6 +250,110 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    // ---- home and away: this phone's location ---------------------------------------
+
+    /** Step 1: location while using the app. Step 2: "Allow all the time". Step 3: set home. */
+    private fun setUpLocation() {
+        if (!HomePresence.available(this)) {
+            locationResult(false, "This phone needs Google Play services to share its location.")
+            return
+        }
+        when (HomePresence.permission(this)) {
+            "none" -> requestPermissions(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                REQ_LOCATION
+            )
+            "foreground" -> AlertDialog.Builder(this)
+                .setTitle("Allow location all the time?")
+                .setMessage(
+                    "So Home Camera can notice when you come and go, even with the app closed, choose " +
+                        "\"Allow all the time\" on the next screen. Only \"home\" or \"out\" is sent to your PC, " +
+                        "never where you are."
+                )
+                .setPositiveButton("Continue") { _, _ ->
+                    requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQ_LOCATION_ALWAYS)
+                }
+                .setNegativeButton("Not now") { _, _ -> setHomeHere() }
+                .show()
+            else -> setHomeHere()
+        }
+    }
+
+    @Deprecated("Uses the platform permission result, which is all this needs")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            REQ_LOCATION ->
+                if (HomePresence.permission(this) == "none") {
+                    locationResult(false, "Location wasn't allowed, so this phone can't switch home and away.")
+                } else {
+                    setUpLocation()
+                }
+            REQ_LOCATION_ALWAYS -> {
+                setHomeHere()
+                if (HomePresence.permission(this) != "always") offerLocationSettings()
+            }
+        }
+    }
+
+    /** Uses where the phone is now as home, draws the circle, and tells the PC "home". */
+    @SuppressLint("MissingPermission")
+    private fun setHomeHere() {
+        if (HomePresence.permission(this) == "none") {
+            locationResult(false, "Location isn't allowed.")
+            return
+        }
+        Toast.makeText(this, "Finding where you are…", Toast.LENGTH_SHORT).show()
+        try {
+            LocationServices.getFusedLocationProviderClient(this)
+                .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
+                .addOnSuccessListener { loc ->
+                    if (loc == null) {
+                        locationResult(false, "Couldn't find where you are. Check location is switched on, then try again.")
+                        return@addOnSuccessListener
+                    }
+                    prefs.homeLat = loc.latitude
+                    prefs.homeLon = loc.longitude
+                    prefs.homeRadius = locationRadius
+                    prefs.homeSet = true
+                    prefs.locationOn = true
+                    HomePresence.report(this, true)
+                    HomePresence.register(this) { ok, _ ->
+                        if (ok) {
+                            locationResult(true, "Home is set. This phone now tells Home Camera when you come and go.")
+                        } else {
+                            locationResult(
+                                true,
+                                "Home is set, but location isn't allowed all the time, so it can't switch by itself. Press Fix."
+                            )
+                        }
+                    }
+                }
+                .addOnFailureListener { e -> locationResult(false, "Couldn't find where you are: ${e.message}") }
+        } catch (e: Exception) {
+            locationResult(false, "Couldn't find where you are: ${e.message}")
+        }
+    }
+
+    /** Android only asks once; after that "Allow all the time" is changed in the app's settings. */
+    private fun offerLocationSettings() {
+        AlertDialog.Builder(this)
+            .setTitle("Change it in Settings")
+            .setMessage("In the next screen choose Permissions, then Location, then \"Allow all the time\". Then come back here.")
+            .setPositiveButton("Open Settings") { _, _ ->
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
+    private fun locationResult(ok: Boolean, message: String) {
+        val json = JSONObject().put("ok", ok).put("message", message).toString()
+        runOnUiThread {
+            web?.evaluateJavascript("window.onPhoneLocation && window.onPhoneLocation(${JSONObject.quote(json)})", null)
+        }
+    }
+
     /** Called from the recorder's pages (login.html and app.js). */
     inner class Bridge {
         @JavascriptInterface
@@ -262,8 +373,27 @@ class MainActivity : AppCompatActivity() {
         fun appVersion(): String = BuildConfig.VERSION_NAME
 
         @JavascriptInterface
+        fun locationInfo(): String = HomePresence.info(this@MainActivity).toString()
+
+        @JavascriptInterface
+        fun locationSetHome(radiusMeters: Int) {
+            locationRadius = radiusMeters.coerceIn(50, 2000)
+            runOnUiThread { setUpLocation() }
+        }
+
+        @JavascriptInterface
+        fun locationOff() {
+            HomePresence.turnOff(this@MainActivity)
+        }
+
+        @JavascriptInterface
         fun changeServer() {
             runOnUiThread { showSetup(null) }
         }
+    }
+
+    companion object {
+        private const val REQ_LOCATION = 20
+        private const val REQ_LOCATION_ALWAYS = 21
     }
 }

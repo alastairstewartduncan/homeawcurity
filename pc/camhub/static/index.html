@@ -16,6 +16,7 @@
     <button data-tab="settings">Settings</button>
   </nav>
   <div class="header-right">
+    <button id="presence-pill" class="presence hidden" title="Home and away"></button>
     <span class="storage" id="storage"></span>
     <span class="storage version" id="version" title="Home Camera version. More in Settings > About."></span>
     <button id="logout">Sign out</button>
@@ -24,6 +25,7 @@
 
 <main>
   <section id="tab-live">
+    <div class="health-banner hidden" id="health-banner"></div>
     <div class="grid-live" id="live"></div>
   </section>
 
@@ -75,5 +77,6 @@
 </template>
 
 <script src="/static/app.js"></script>
+<script src="/static/alerts.js"></script>
 </body>
 </html>

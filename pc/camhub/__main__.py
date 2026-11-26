@@ -51,6 +51,11 @@ class Hub:
         self.config = config
         self.storage = Storage(config)
         self.events = EventBus()
+        from .health import HealthMonitor
+        from .presence import Presence
+        self.presence = Presence(config, self.events)
+        self.events.enrich = self.presence.tag_event
+        self.health = HealthMonitor(self)
         self.detector = PersonDetector()
         self.cameras = {}
         self.started = False
@@ -68,11 +73,13 @@ class Hub:
 
     def start(self):
         self.started = True
+        self.health.start()
         self.storage.start_cleanup_thread()
         for cam in self.cameras.values():
             cam.start()
 
     def stop(self):
+        self.health.stop()
         for cam in self.cameras.values():
             cam.stop()
 

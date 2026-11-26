@@ -10,6 +10,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -34,6 +36,9 @@ class MonitorService : Service() {
     @Volatile private var running = false
     private var worker: Thread? = null
     @Volatile private var connection: HttpURLConnection? = null
+    /** Last time the PC answered, and whether we've warned that it can't be reached. */
+    @Volatile private var lastContact = System.currentTimeMillis()
+    @Volatile private var warnedUnreachable = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -47,14 +52,7 @@ class MonitorService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        val ongoing = NotificationCompat.Builder(this, CHANNEL_SERVICE)
-            .setSmallIcon(R.drawable.ic_stat_camera)
-            .setContentTitle("Watching for alerts")
-            .setContentText("You'll be told when the camera records something")
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setContentIntent(openApp(this, null))
-            .build()
+        val ongoing = ongoingNotification()
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(ID_SERVICE, ongoing, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -72,6 +70,18 @@ class MonitorService : Service() {
         connection?.disconnect()
         worker?.interrupt()
         super.onDestroy()
+    }
+
+    private fun ongoingNotification(): Notification {
+        val text = Prefs(this).presenceText
+        return NotificationCompat.Builder(this, CHANNEL_SERVICE)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle("Watching for alerts")
+            .setContentText(text.ifEmpty { "You'll be told when the camera records something" })
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setContentIntent(openApp(this, null))
+            .build()
     }
 
     private fun loop() {
@@ -99,10 +109,12 @@ class MonitorService : Service() {
                 }
                 if (conn.responseCode != 200) throw IllegalStateException("HTTP ${conn.responseCode}")
                 backoff = 2_000L
+                reachedPc()
                 BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
                     val data = StringBuilder()
                     while (running) {
                         val line = reader.readLine() ?: break
+                        lastContact = System.currentTimeMillis() // includes the keep-alive every 20 s
                         when {
                             line.startsWith("data:") -> data.append(line.substring(5).trim())
                             line.isEmpty() && data.isNotEmpty() -> {
@@ -119,6 +131,7 @@ class MonitorService : Service() {
                 connection = null
             }
             if (!running) return
+            checkUnreachable()
             try {
                 Thread.sleep(backoff)
             } catch (_: InterruptedException) {
@@ -134,7 +147,18 @@ class MonitorService : Service() {
         // Remember where we got to, so alerts missed while reconnecting are caught up.
         if (seq > 0) prefs.lastEventId = seq
         val type = e.optString("type")
+        if (type == "health") {
+            handleHealth(e)
+            return
+        }
+        if (type == "presence") {
+            prefs.presenceText = presenceLine(e)
+            notify(ID_SERVICE, ongoingNotification())
+            return
+        }
         if (type != "clip_started" && type != "person") return
+        // Home and away: the PC says whether to alert (someone's home, so it's held back).
+        if (e.has("alert") && !e.optBoolean("alert", true)) return
         val clip = e.optString("clip")
         val cam = e.optString("camera_name", e.optString("camera"))
         val person = type == "person" || e.optBoolean("person")
@@ -160,6 +184,97 @@ class MonitorService : Service() {
             n.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?))
         }
         notify(clip.hashCode(), n.build())
+    }
+
+    private fun presenceLine(e: JSONObject): String {
+        val where = if (e.optString("where") == "home") "Home" else "Away"
+        val alerts = when (e.optString("alerts")) {
+            "all" -> "alerts on"
+            "people" -> "alerts for people only"
+            else -> "motion alerts paused"
+        }
+        return "$where: $alerts"
+    }
+
+    /** Camera offline, disk nearly full, recording failed, and when each is fixed. */
+    private fun handleHealth(e: JSONObject) {
+        val id = ("health:" + e.optString("key")).hashCode()
+        when (e.optString("state")) {
+            "cleared" -> {
+                NotificationManagerCompat.from(this).cancel(id)
+                return
+            }
+            "problem", "ok" -> {}
+            else -> return
+        }
+        val problem = e.optString("state") == "problem"
+        val title = e.optString("title").ifEmpty { "Home Camera" }
+        val message = e.optString("message")
+        val n = NotificationCompat.Builder(this, CHANNEL_HEALTH)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setCategory(if (problem) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_STATUS)
+            .setPriority(if (problem) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
+            .setSilent(!problem)
+            .setContentIntent(openApp(this, null))
+        notify(id, n.build())
+    }
+
+    /** The PC answered: clear any "can't reach" warning and catch up on home/away. */
+    private fun reachedPc() {
+        lastContact = System.currentTimeMillis()
+        HomePresence.sendIfDue(this)
+        if (warnedUnreachable) {
+            warnedUnreachable = false
+            val n = NotificationCompat.Builder(this, CHANNEL_UNREACHABLE)
+                .setSmallIcon(R.drawable.ic_stat_camera)
+                .setContentTitle("Home Camera PC is back")
+                .setContentText("Your phone can reach the recorder again.")
+                .setAutoCancel(true)
+                .setSilent(true)
+                .setTimeoutAfter(6 * 3600_000L)
+                .setContentIntent(openApp(this, null))
+                .build()
+            notify(ID_UNREACHABLE, n)
+        }
+    }
+
+    /**
+     * The PC can't send anything when it's off or has lost its internet, so the phone warns by
+     * itself. Only when the phone itself is online, so a flat signal doesn't set it off.
+     */
+    private fun checkUnreachable() {
+        if (warnedUnreachable) return
+        if (System.currentTimeMillis() - lastContact < UNREACHABLE_MS) return
+        if (!phoneOnline()) return
+        warnedUnreachable = true
+        val mins = (System.currentTimeMillis() - lastContact) / 60_000
+        val text = "Your phone hasn't been able to reach Home Camera for $mins minutes, so recordings " +
+            "and alerts may have stopped. The PC may be off, asleep or without internet, or there may " +
+            "have been a power cut."
+        val n = NotificationCompat.Builder(this, CHANNEL_UNREACHABLE)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle("Can't reach Home Camera")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(openApp(this, null))
+            .build()
+        notify(ID_UNREACHABLE, n)
+    }
+
+    private fun phoneOnline(): Boolean = try {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    } catch (_: Exception) {
+        false
     }
 
     private fun fetchThumb(prefs: Prefs, clip: String): Bitmap? {
@@ -203,6 +318,10 @@ class MonitorService : Service() {
         const val CHANNEL_SERVICE = "service"
         const val CHANNEL_PERSON = "person"
         const val CHANNEL_MOTION = "motion"
+        const val CHANNEL_HEALTH = "health"
+        const val CHANNEL_UNREACHABLE = "unreachable"
+        const val ID_UNREACHABLE = 3
+        private const val UNREACHABLE_MS = 15 * 60_000L
         const val ID_SERVICE = 1
         const val ID_SIGNED_OUT = 2
         const val ACTION_STOP = "stop"
@@ -225,6 +344,14 @@ class MonitorService : Service() {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_MOTION, "Movement", NotificationManager.IMPORTANCE_DEFAULT)
                     .apply { description = "Movement was seen and recording started" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_HEALTH, "Camera and PC problems", NotificationManager.IMPORTANCE_HIGH)
+                    .apply { description = "A camera is offline, the disk is nearly full, or a recording failed" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_UNREACHABLE, "Can't reach the PC", NotificationManager.IMPORTANCE_HIGH)
+                    .apply { description = "Your phone hasn't been able to reach the Home Camera PC for a while" }
             )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_SERVICE, "Background connection", NotificationManager.IMPORTANCE_MIN)

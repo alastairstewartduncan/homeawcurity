@@ -245,6 +245,7 @@ async function loadSettings() {
     const s = await api(`/api/cameras/${c.id}/settings`);
     wrap.appendChild(settingsCard(c, s.motion));
   }
+  if (window.alertCards) for (const card of await window.alertCards()) wrap.appendChild(card);
   wrap.appendChild(storageCard());
   wrap.appendChild(aboutCard());
 }
@@ -458,6 +459,7 @@ async function refreshStatus() {
   try {
     status = await api('/api/status');
     updateLive();
+    if (window.onAlertStatus) window.onAlertStatus(status);
     const sel = $('#cam-filter');
     sel.classList.toggle('hidden', status.cameras.length < 2);
     if (sel.options.length !== status.cameras.length + 1) {
@@ -474,6 +476,7 @@ function listen() {
     if (e.type === 'clip_started') toast(`${e.camera_name}: ${e.person ? 'person seen' : 'movement'}, recording`);
     if (e.type === 'person') toast(`${e.camera_name}: person seen`);
     refreshStatus();
+    if (window.onAlertEvent) window.onAlertEvent(e);
     if (e.type === 'clip_saved' && !$('#tab-recordings').classList.contains('hidden') && !playing) loadDays();
   };
 }

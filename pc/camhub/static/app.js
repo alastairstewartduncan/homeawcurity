@@ -528,8 +528,10 @@ async function loadSettings() {
     if (window.privacyCard) wrap.appendChild(await window.privacyCard(c));
   }
   if (window.alertCards) for (const card of await window.alertCards()) wrap.appendChild(card);
+  if (window.homeLinksCard) wrap.appendChild(await window.homeLinksCard());
   wrap.appendChild(storageCard());
   if (window.backupCard) wrap.appendChild(await backupCard());
+  if (window.updatesCard) wrap.appendChild(await window.updatesCard());
   wrap.appendChild(aboutCard());
 }
 
@@ -547,9 +549,10 @@ function aboutCard() {
     <p><b>Home Camera ${esc(versionText())}</b> on this PC${built && !isNaN(built) ?
       `, built ${esc(built.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}))}` : ''}.</p>
     ${phone ? `<p>Phone app: version ${esc(phone)}.</p>` : ''}
-    <p class="muted">Each new download has a higher version number. The newest number is shown on the
+    <p class="muted">Each new download has a higher version number. Updates install by themselves (see
+      Updates above), or run the newest HomeCameraSetup.exe from the
       <a href="https://github.com/alastairstewartduncan/homeawcurity/releases/tag/latest" target="_blank" rel="noopener">download page</a>.
-      To update, run the newest HomeCameraSetup.exe on this PC. Your settings and recordings are kept.</p>
+      Your settings and recordings are kept.</p>
     ${v.commit ? `<p class="muted">Build ${esc(v.commit)}</p>` : ''}`;
   return card;
 }

@@ -203,6 +203,26 @@ Everything here runs on the PC. No pictures are sent anywhere.
 Smart alerts follow home and away like other alerts. Recordings show who and what was seen.
 Lines, areas and the doorstep stay in place on the picture, so keep the camera still (patrol off).
 
+## Automatic updates
+
+The PC app checks the download page every few hours. A newer HomeCameraSetup.exe is downloaded,
+checked against its checksum and installed quietly at night (2 to 5 AM by default, never while a
+camera is recording). Settings and recordings are kept. The PC also keeps the newest phone app,
+and the phone app fetches it from the PC and installs it over itself (the first time Android asks
+you to allow this). Everything is in **Settings > Updates**, including **Check now** and
+**Install now**.
+
+Because this project is private on GitHub, the PC needs a read-only GitHub key to see the
+download page: a fine-grained personal access token for this repository only, with
+**Contents: Read-only**. Paste it into Settings > Updates. (If the project is made public, no key
+is needed.)
+
+The phone app must be signed with the same key in every build, or Android won't install an update
+over it. The build reads that key from the `ANDROID_KEYSTORE_B64` Actions secret (the keystore file,
+base64-encoded, password `homecamera`, alias `homecamera`). Without the secret the phone app still
+builds, but can't update itself. After the secret is added, uninstall the old phone app once and
+install the new one; updates are automatic from then on.
+
 ## 3. Watching from outside the house
 
 Point the app at an address that reaches the PC's port 8080 from the internet (for example a

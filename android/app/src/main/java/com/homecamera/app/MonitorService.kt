@@ -134,6 +134,10 @@ class MonitorService : Service() {
         // Remember where we got to, so alerts missed while reconnecting are caught up.
         if (seq > 0) prefs.lastEventId = seq
         val type = e.optString("type")
+        if (type == "ai_alert") {
+            handleAiAlert(prefs, e)
+            return
+        }
         if (type != "clip_started" && type != "person") return
         val clip = e.optString("clip")
         val cam = e.optString("camera_name", e.optString("camera"))
@@ -162,11 +166,43 @@ class MonitorService : Service() {
         notify(clip.hashCode(), n.build())
     }
 
+    /** An AI agent on the PC decided this is worth telling the owner about. */
+    private fun handleAiAlert(prefs: Prefs, e: JSONObject) {
+        val cam = e.optString("camera_name", e.optString("camera"))
+        val agent = e.optString("agent_name", "AI agent")
+        val message = e.optString("message").ifEmpty { e.optString("summary") }
+        val clip = e.optString("clip")
+        val run = e.optString("run")
+        val picture = if (run.isNotEmpty()) fetchPicture(prefs, "/api/ai/runs/$run/picture.jpg") else null
+        val n = NotificationCompat.Builder(this, CHANNEL_AI)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle("$cam: $message")
+            .setContentText(e.optString("summary").ifEmpty { agent })
+            .setSubText(agent)
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(openApp(this, clip.ifEmpty { null }))
+        if (picture != null) {
+            n.setLargeIcon(picture)
+            n.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?)
+                .setSummaryText(message))
+        } else {
+            n.setStyle(NotificationCompat.BigTextStyle().bigText(e.optString("summary").ifEmpty { message }))
+        }
+        notify(("ai$run").hashCode(), n.build())
+    }
+
     private fun fetchThumb(prefs: Prefs, clip: String): Bitmap? {
         if (clip.isEmpty()) return null
+        return fetchPicture(prefs, "/api/clips/$clip/thumb")
+    }
+
+    private fun fetchPicture(prefs: Prefs, path: String): Bitmap? {
         repeat(3) { attempt ->
             try {
-                val conn = URL("${prefs.serverUrl}/api/clips/$clip/thumb").openConnection() as HttpURLConnection
+                val conn = URL("${prefs.serverUrl}$path").openConnection() as HttpURLConnection
                 conn.setRequestProperty("Authorization", "Bearer ${prefs.token}")
                 conn.connectTimeout = 10_000
                 conn.readTimeout = 15_000
@@ -203,6 +239,7 @@ class MonitorService : Service() {
         const val CHANNEL_SERVICE = "service"
         const val CHANNEL_PERSON = "person"
         const val CHANNEL_MOTION = "motion"
+        const val CHANNEL_AI = "ai"
         const val ID_SERVICE = 1
         const val ID_SIGNED_OUT = 2
         const val ACTION_STOP = "stop"
@@ -225,6 +262,10 @@ class MonitorService : Service() {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_MOTION, "Movement", NotificationManager.IMPORTANCE_DEFAULT)
                     .apply { description = "Movement was seen and recording started" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_AI, "AI agent alerts", NotificationManager.IMPORTANCE_HIGH)
+                    .apply { description = "One of your AI agents spotted something you asked to hear about" }
             )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_SERVICE, "Background connection", NotificationManager.IMPORTANCE_MIN)

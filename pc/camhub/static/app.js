@@ -52,6 +52,7 @@ function showTab(name) {
   });
   if (name === 'recordings') loadDays();
   if (name === 'settings') loadSettings();
+  if (name === 'ai' && window.loadAi) window.loadAi();
 }
 $$('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 $('#logout').addEventListener('click', async () => {
@@ -473,6 +474,10 @@ function listen() {
     const e = JSON.parse(m.data);
     if (e.type === 'clip_started') toast(`${e.camera_name}: ${e.person ? 'person seen' : 'movement'}, recording`);
     if (e.type === 'person') toast(`${e.camera_name}: person seen`);
+    if (e.type === 'ai_alert') {
+      toast(`${e.camera_name} · ${e.agent_name}: ${e.message}`);
+      if (window.refreshAiActivity && !$('#tab-ai').classList.contains('hidden')) window.refreshAiActivity();
+    }
     refreshStatus();
     if (e.type === 'clip_saved' && !$('#tab-recordings').classList.contains('hidden') && !playing) loadDays();
   };

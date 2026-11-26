@@ -56,6 +56,8 @@ class Hub:
         self.started = False
         for c in config.cameras:
             self.cameras[c["id"]] = self._make(c)
+        from .agents import AgentRunner
+        self.agents = AgentRunner(self)
 
     def _make(self, c):
         from .camera import Camera
@@ -69,10 +71,12 @@ class Hub:
     def start(self):
         self.started = True
         self.storage.start_cleanup_thread()
+        self.agents.start()
         for cam in self.cameras.values():
             cam.start()
 
     def stop(self):
+        self.agents.stop()
         for cam in self.cameras.values():
             cam.stop()
 

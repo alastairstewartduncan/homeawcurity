@@ -320,6 +320,9 @@ def create_app(hub):
         config.save()
         return {"retention_days": days, "min_free_gb": free}
 
+    from .privacy import add_privacy_routes
+    add_privacy_routes(app, hub)
+
     # ---- recordings -----------------------------------------------------------
 
     @app.get("/api/days")

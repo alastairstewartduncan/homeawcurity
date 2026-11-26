@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A.S.D Home Security on TV</title>
+<link rel="icon" href="/favicon.svg">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; overflow: hidden;
+    font: 18px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body.idle { cursor: none; }
+  #grid { position: absolute; inset: 0; display: grid; gap: 4px; background: #000; }
+  .tile { position: relative; background: #111; overflow: hidden; outline: none; }
+  .tile img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .tile:focus-visible { box-shadow: inset 0 0 0 4px #4ea1ff; }
+  .tag { position: absolute; left: 14px; top: 12px; padding: 4px 12px; border-radius: 99px;
+    background: rgba(0,0,0,.6); font-weight: 600; }
+  .tag .dot { display: none; width: 10px; height: 10px; border-radius: 50%; background: #ff4d4f; margin-right: 8px;
+    vertical-align: 1px; animation: pulse 1.4s ease-in-out infinite; }
+  .tile.rec .tag .dot { display: inline-block; }
+  .tile.off img { opacity: .25; }
+  .tile .off-msg { display: none; position: absolute; inset: 0; place-items: center; color: #bbb; }
+  .tile.off .off-msg { display: grid; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  #clock { position: absolute; right: 18px; top: 12px; padding: 4px 12px; border-radius: 99px;
+    background: rgba(0,0,0,.6); font-variant-numeric: tabular-nums; z-index: 2; }
+  #hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 16px;
+    border-radius: 99px; background: rgba(0,0,0,.7); color: #ccc; font-size: 15px; transition: opacity .6s; z-index: 2; }
+  body.idle #hint { opacity: 0; }
+  #empty { position: absolute; inset: 0; display: none; place-items: center; color: #aaa; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+<div id="grid"></div>
+<div id="clock"></div>
+<div id="hint">Select a camera to show it full screen. Select it again (or press Back) for all cameras.</div>
+<div id="empty">No camera is set up yet. Add one in A.S.D Home Security's Settings.</div>
+<script>
+'use strict';
+// A plain page for a smart TV's web browser (or "Cast tab" in Chrome): every camera live,
+// big, with nothing to press. Works with a TV remote's arrow keys and OK button.
+const grid = document.getElementById('grid');
+let cams = [], solo = null, idleTimer = null;
+
+async function load() {
+  try {
+    const r = await fetch('/api/status', {credentials: 'same-origin'});
+    if (r.status === 401) { location.href = '/login?next=/tv'; return; }
+    const s = await r.json();
+    const ids = s.cameras.map(c => c.id).join(',');
+    if (ids !== cams.map(c => c.id).join(',')) { cams = s.cameras; build(); }
+    cams = s.cameras;
+    for (const c of cams) {
+      const t = grid.querySelector(`[data-cam="${c.id}"]`);
+      if (!t) continue;
+      t.classList.toggle('rec', !!c.recording);
+      t.classList.toggle('off', !c.online);
+    }
+  } catch (e) { /* PC busy or restarting: try again soon */ }
+}
+
+function build() {
+  grid.innerHTML = '';
+  document.getElementById('empty').style.display = cams.length ? 'none' : 'grid';
+  for (const c of cams) {
+    const t = document.createElement('div');
+    t.className = 'tile'; t.tabIndex = 0; t.dataset.cam = c.id;
+    t.innerHTML = '<img alt=""><div class="tag"><span class="dot"></span><span class="n"></span></div><div class="off-msg">Camera offline</div>';
+    t.querySelector('.n').textContent = c.name;
+    const img = t.querySelector('img');
+    const src = `/api/cameras/${encodeURIComponent(c.id)}/live.mjpg`;
+    img.src = src;
+    img.addEventListener('error', () => setTimeout(() => { img.src = src + '?t=' + Date.now(); }, 3000));
+    t.addEventListener('click', () => toggle(c.id));
+    t.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(c.id); } });
+    grid.appendChild(t);
+  }
+  layout();
+  const first = grid.querySelector('.tile');
+  if (first) first.focus();
+}
+
+function layout() {
+  const tiles = [...grid.children];
+  const shown = solo ? tiles.filter(t => t.dataset.cam === solo) : tiles;
+  tiles.forEach(t => { t.style.display = shown.includes(t) ? '' : 'none'; });
+  const n = Math.max(1, shown.length);
+  // The number of columns that makes each 16:9 picture biggest on this screen.
+  let c = 1, best = 0;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const w = Math.min(innerWidth / cols, (innerHeight / rows) * 16 / 9);
+    if (w > best + 1) { best = w; c = cols; }
+  }
+  grid.style.gridTemplateColumns = `repeat(${c}, 1fr)`;
+  grid.style.gridTemplateRows = `repeat(${Math.ceil(n / c)}, 1fr)`;
+}
+
+function toggle(id) {
+  solo = solo === id ? null : id;
+  layout();
+  const t = grid.querySelector(`[data-cam="${solo || id}"]`);
+  if (t) t.focus();
+}
+
+// TV remotes: arrows move between cameras, Back returns to all of them.
+document.addEventListener('keydown', ev => {
+  wake();
+  if ((ev.key === 'Backspace' || ev.key === 'Escape' || ev.key === 'GoBack' || ev.keyCode === 10009) && solo) {
+    ev.preventDefault(); toggle(solo); return;
+  }
+  const tiles = [...grid.children].filter(t => t.style.display !== 'none');
+  const i = tiles.indexOf(document.activeElement);
+  const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+  const move = {ArrowRight: 1, ArrowLeft: -1, ArrowDown: cols, ArrowUp: -cols}[ev.key];
+  if (move && tiles.length) {
+    ev.preventDefault();
+    const next = tiles[Math.max(0, Math.min(tiles.length - 1, (i < 0 ? 0 : i) + move))];
+    next.focus();
+  }
+});
+
+function wake() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), 6000);
+}
+document.addEventListener('mousemove', wake);
+
+function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+// Keep the TV or laptop screen from going to sleep while this is showing.
+async function keepAwake() {
+  try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
+
+addEventListener('resize', layout);
+load(); tick(); wake(); keepAwake();
+setInterval(load, 10000);
+setInterval(tick, 10000);
+</script>
+</body>
+</html>

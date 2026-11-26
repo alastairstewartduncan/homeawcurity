@@ -10,9 +10,8 @@ a checksum of HomeCameraSetup.exe and HomeCamera.apk.
 - Phone: a newer HomeCamera.apk is downloaded and kept here. The phone app asks the PC for it
   (it already signs in to the PC), so only the PC needs to reach GitHub.
 
-The project's code is private on GitHub, so reading the download page needs a read-only GitHub
-key ("token"), entered once in Settings > Updates. Without a key this still works if the
-project is made public.
+The project is public on GitHub, so no key is needed. If it is made private again, reading the
+download page needs a read-only GitHub key ("token"), entered once in Settings > Updates.
 
 Settings (config.json, "updates"):
   auto_install   install PC updates by itself (otherwise press Install in Settings > Updates)

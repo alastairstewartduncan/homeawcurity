@@ -139,7 +139,9 @@ class Storage:
         if cam_id:
             p = os.path.join(self.root, cam_id)
             return [cam_id] if re.match(r"^[A-Za-z0-9-]+$", cam_id) and os.path.isdir(p) else []
-        return [c for c in os.listdir(self.root) if os.path.isdir(os.path.join(self.root, c))]
+        # Only camera folders: others (such as _summaries) start with a character ids can't have.
+        return [c for c in os.listdir(self.root)
+                if re.match(r"^[A-Za-z0-9-]+$", c) and os.path.isdir(os.path.join(self.root, c))]
 
     @staticmethod
     def _read_meta(path):

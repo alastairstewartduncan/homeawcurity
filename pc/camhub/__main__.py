@@ -64,8 +64,14 @@ class Hub:
         from .ptz import OnvifPtz
 
         on = c.get("onvif") or {}
-        ptz = OnvifPtz(on["host"], int(on.get("port") or 8899), on.get("username", ""),
-                       on.get("password", "")) if on.get("host") else None
+
+        def save_port(port):
+            # The camera answered on a different port from the saved one: remember it.
+            on["port"] = port
+            self.config.save()
+
+        ptz = OnvifPtz(on["host"], int(on.get("port") or 8888), on.get("username", ""),
+                       on.get("password", ""), on_port_found=save_port) if on.get("host") else None
         return Camera(c, self.storage, self.events, self.detector, ptz)
 
     def start(self):
@@ -254,7 +260,7 @@ def cmd_setup(args):
         cam = config.cameras[0]
         if ans.get("camera_name"):
             cam["name"] = ans["camera_name"]
-        cam["onvif"] = {"host": ip, "port": int(ans.get("onvif_port") or 8899), "username": user, "password": cam_pw}
+        cam["onvif"] = {"host": ip, "port": int(ans.get("onvif_port") or 8888), "username": user, "password": cam_pw}
         main_url, sub_url = find_streams(ip, user, cam_pw, report=report)
         if main_url:
             cam["main_url"], cam["sub_url"] = main_url, sub_url

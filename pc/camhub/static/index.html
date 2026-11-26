@@ -71,15 +71,55 @@
     <div class="cam-head"><span class="name"></span><span class="pill state"></span></div>
     <div class="video-wrap"><img alt="Live view"><div class="msg hidden">Connecting…</div><div class="why hidden"></div></div>
     <div class="cam-tools">
-      <div class="ptz hidden">
+      <div class="ptz hidden" title="Hold an arrow to turn the camera">
         <span class="c"></span><button data-d="0,1" aria-label="Up">▲</button><span class="c"></span>
-        <button data-d="-1,0" aria-label="Left">◀</button><span class="c"></span><button data-d="1,0" aria-label="Right">▶</button>
+        <button data-d="-1,0" aria-label="Left">◀</button><button class="home" aria-label="Home position" title="Go to the home position">⌂</button><button data-d="1,0" aria-label="Right">▶</button>
         <span class="c"></span><button data-d="0,-1" aria-label="Down">▼</button><span class="c"></span>
       </div>
-      <div class="speed ptz-speed hidden">Pan speed<input type="range" min="0.1" max="1" step="0.1" value="0.5"></div>
+      <div class="tool-col">
+        <div class="zoom" title="Zoom. You can also scroll the mouse wheel or pinch the picture.">
+          <button class="zoom-out" aria-label="Zoom out">−</button>
+          <span class="zoom-level">1×</span>
+          <button class="zoom-in" aria-label="Zoom in">+</button>
+        </div>
+        <div class="zoom lens hidden" title="The camera's own zoom lens. Hold a button down.">
+          <button class="lens-out" aria-label="Lens zoom out">−</button>
+          <span class="zoom-level">Lens</span>
+          <button class="lens-in" aria-label="Lens zoom in">+</button>
+        </div>
+        <div class="speed ptz-speed hidden">Turn speed<input type="range" min="0.1" max="1" step="0.1" value="0.5"></div>
+      </div>
+      <div class="tool-col">
+        <button class="listen" aria-pressed="false">🔈 Listen</button>
+        <button class="talk hidden" title="Hold to talk through the camera's speaker">🎤 Hold to talk</button>
+      </div>
       <div style="flex:1"></div>
       <button class="snap">Save picture</button>
       <button class="full">Full screen</button>
+    </div>
+    <div class="positions hidden">
+      <div class="pos-row">
+        <span class="pos-label">Positions</span>
+        <span class="chips"></span>
+        <button class="add-pos" title="Remember where the camera is pointing now">＋ Save position</button>
+        <span class="add-form hidden">
+          <input class="pos-name" placeholder="Name, e.g. Gate" maxlength="30">
+          <button class="primary save-pos">Save</button><button class="cancel-pos">Cancel</button>
+        </span>
+        <button class="edit-pos hidden">Edit</button>
+      </div>
+      <div class="pos-row">
+        <label class="check" title="Turn between the saved positions. Pauses while recording and for 2 minutes after you steer by hand.">
+          <input type="checkbox" class="patrol"> Patrol between positions, every
+          <select class="patrol-secs">
+            <option value="15">15 s</option><option value="30">30 s</option><option value="60">1 min</option>
+            <option value="300">5 min</option><option value="900">15 min</option>
+          </select>
+        </label>
+        <label class="check" title="When something moves near the edge of the picture, turn a little towards it.">
+          <input type="checkbox" class="follow"> Turn towards movement
+        </label>
+      </div>
     </div>
   </div>
 </template>

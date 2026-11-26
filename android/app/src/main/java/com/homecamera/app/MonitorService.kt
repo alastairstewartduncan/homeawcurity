@@ -164,6 +164,10 @@ class MonitorService : Service() {
             handleDigest(prefs, e)
             return
         }
+        if (e.optBoolean("smart")) {
+            handleSmart(prefs, e)
+            return
+        }
         if (type != "clip_started" && type != "person") return
         // Home and away: the PC says whether to alert (someone's home, so it's held back).
         if (e.has("alert") && !e.optBoolean("alert", true)) return
@@ -313,6 +317,36 @@ class MonitorService : Service() {
         notify(("ai$run").hashCode(), n.build())
     }
 
+    /**
+     * Smart alerts from the PC: a stranger, an unknown vehicle, a parcel left or taken, someone
+     * loitering or crossing a line. The PC decides whether to alert (family and home/away).
+     */
+    private fun handleSmart(prefs: Prefs, e: JSONObject) {
+        if (e.has("alert") && !e.optBoolean("alert", true)) return
+        val title = e.optString("title").ifEmpty { e.optString("camera_name", "Home Camera") }
+        val message = e.optString("message")
+        val clip = e.optString("clip")
+        val path = e.optString("picture")
+        val picture = if (path.startsWith("/")) fetchPicture(prefs, path) else fetchThumb(prefs, clip)
+        val n = NotificationCompat.Builder(this, CHANNEL_SMART)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(openApp(this, clip.ifEmpty { null }))
+        if (picture != null) {
+            n.setLargeIcon(picture)
+            n.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?)
+                .setSummaryText(message))
+        } else {
+            n.setStyle(NotificationCompat.BigTextStyle().bigText(message))
+        }
+        notify(("smart" + e.optLong("seq")).hashCode(), n.build())
+    }
+
     /** The morning summary of last night's recordings. */
     private fun handleDigest(prefs: Prefs, e: JSONObject) {
         val text = e.optString("text")
@@ -382,6 +416,7 @@ class MonitorService : Service() {
         const val ID_UNREACHABLE = 4
         private const val UNREACHABLE_MS = 15 * 60_000L
         const val CHANNEL_AI = "ai"
+        const val CHANNEL_SMART = "smart"
         const val ID_SERVICE = 1
         const val ID_SIGNED_OUT = 2
         const val ID_DIGEST = 3
@@ -417,6 +452,10 @@ class MonitorService : Service() {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_AI, "AI agent alerts", NotificationManager.IMPORTANCE_HIGH)
                     .apply { description = "One of your AI agents spotted something you asked to hear about" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_SMART, "Strangers, cars, parcels and loitering", NotificationManager.IMPORTANCE_HIGH)
+                    .apply { description = "A stranger or unknown vehicle, a parcel left or taken, or someone loitering or crossing a line" }
             )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_SERVICE, "Background connection", NotificationManager.IMPORTANCE_MIN)

@@ -40,4 +40,6 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.webkit:webkit:1.12.1")
+    // Home and away: the home area (geofence) and finding where the phone is.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 }

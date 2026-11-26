@@ -116,7 +116,14 @@ def create_app(hub):
             "storage": hub.storage.usage(),
             "retention_days": config.storage.get("retention_days"),
             "min_free_gb": config.storage.get("min_free_gb"),
+            "presence": hub.presence.state() if getattr(hub, "presence", None) else None,
+            "health": hub.health.status() if getattr(hub, "health", None) else [],
         }
+
+    # Home/away mode and health alerts (alerts_api.py).
+    if getattr(hub, "presence", None) and getattr(hub, "health", None):
+        from .alerts_api import add_alert_routes
+        add_alert_routes(app, hub)
 
     def cam_or_404(cam_id):
         cam = hub.cameras.get(cam_id)

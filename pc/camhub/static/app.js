@@ -525,6 +525,7 @@ async function loadSettings() {
     wrap.appendChild(settingsCard(c, s.motion));
     if (window.privacyCard) wrap.appendChild(await window.privacyCard(c));
   }
+  if (window.alertCards) for (const card of await window.alertCards()) wrap.appendChild(card);
   wrap.appendChild(storageCard());
   if (window.backupCard) wrap.appendChild(await backupCard());
   wrap.appendChild(aboutCard());
@@ -739,6 +740,7 @@ async function refreshStatus() {
   try {
     status = await api('/api/status');
     updateLive();
+    if (window.onAlertStatus) window.onAlertStatus(status);
     const sel = $('#cam-filter');
     sel.classList.toggle('hidden', status.cameras.length < 2);
     if (sel.options.length !== status.cameras.length + 1) {
@@ -765,6 +767,7 @@ function listen() {
       if (window.refreshAiActivity && !$('#tab-ai').classList.contains('hidden')) window.refreshAiActivity();
     }
     refreshStatus();
+    if (window.onAlertEvent) window.onAlertEvent(e);
     if (e.type === 'clip_saved' && !$('#tab-recordings').classList.contains('hidden') && !playing) loadDays();
   };
 }

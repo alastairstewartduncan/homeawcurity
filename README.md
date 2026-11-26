@@ -124,6 +124,35 @@ The app shows a quiet "Watching for alerts" notification while it listens. That'
 for apps that keep a connection open; you can hide it by long-pressing it and turning off the
 "Background connection" category.
 
+## Home and away
+
+Phone alerts for motion are held back while anyone is home, and come back on as soon as everyone
+has left. Recording carries on exactly the same either way.
+
+- **Set it up on each phone**: in the app, open **Settings > Home and away** while you're at home and
+  press **Use this phone's location**. Allow location **all the time** when asked. The phone then
+  tells the PC "home" or "out" as it comes and goes. Your actual location is never sent.
+- **Switch by hand**: press the **Home / Away** button at the top of the screen, then choose
+  **Home** or **Away**. It goes back to **Automatic** the next time a phone arrives home or leaves.
+- **While someone is home** you can still be told about people (not just any movement).
+- **Alert hours**: times when alerts are always on, even if you're home, such as overnight.
+- A phone that hasn't checked in for 12 hours stops counting, so a lost or flat phone can't keep
+  alerts switched off. With no phones set up, alerts are always on, as before.
+
+## Health alerts
+
+Your phone is told, whether you're home or away, when:
+
+- a camera has sent no video for 5 minutes (and again when it's back),
+- the recordings disk is nearly full, or the recordings folder can't be reached (for example an
+  unplugged USB drive),
+- a recording couldn't be saved.
+
+The phone also warns by itself if it can't reach the PC for 15 minutes while the phone has
+internet, for example after a power cut. Problems also show as a banner on the Live tab. Change the
+minutes or turn each alert off in **Settings > Health alerts**; turn the phone's own warning off in
+Android's notification settings for Home Camera ("Can't reach the PC").
+
 ## AI agents and skills (AI tab)
 
 The **AI** tab lets you add your own AI helpers that look at the camera picture when something happens.

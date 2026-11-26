@@ -3,17 +3,29 @@ import collections
 import itertools
 import queue
 import threading
+import time
 
 
 class EventBus:
     def __init__(self, keep=50):
         self._subs = set()
         self._lock = threading.Lock()
-        self._seq = itertools.count(1)
+        # Numbers carry on rising after a restart, so a phone catching up after a power cut
+        # still gets the events it missed.
+        self._seq = itertools.count(int(time.time() * 1000))
         self.recent = collections.deque(maxlen=keep)
+        # Optional function that adds details to each event before it goes out
+        # (home/away marks motion events with whether to alert).
+        self.enrich = None
 
     def publish(self, event):
-        event = dict(event, seq=next(self._seq))
+        event = dict(event)
+        if self.enrich is not None:
+            try:
+                event = self.enrich(event) or event
+            except Exception:
+                pass
+        event["seq"] = next(self._seq)
         with self._lock:
             self.recent.append(event)
             subs = list(self._subs)

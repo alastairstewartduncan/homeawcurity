@@ -358,6 +358,9 @@ def create_app(hub):
             raise HTTPException(404, "Clip not found")
         return {"ok": True}
 
+    from .ai_api import add_ai_routes
+    add_ai_routes(app, hub)
+
     # ---- live events (used for phone notifications) ---------------------------
 
     @app.get("/api/events")

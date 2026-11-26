@@ -58,24 +58,34 @@ class Hub:
         self.started = False
         for c in config.cameras:
             self.cameras[c["id"]] = self._make(c)
+        from .agents import AgentRunner
+        self.agents = AgentRunner(self)
 
     def _make(self, c):
         from .camera import Camera
         from .ptz import OnvifPtz
 
         on = c.get("onvif") or {}
-        ptz = OnvifPtz(on["host"], int(on.get("port") or 8899), on.get("username", ""),
-                       on.get("password", "")) if on.get("host") else None
+
+        def save_port(port):
+            # The camera answered on a different port from the saved one: remember it.
+            on["port"] = port
+            self.config.save()
+
+        ptz = OnvifPtz(on["host"], int(on.get("port") or 8888), on.get("username", ""),
+                       on.get("password", ""), on_port_found=save_port) if on.get("host") else None
         return Camera(c, self.storage, self.events, self.detector, ptz)
 
     def start(self):
         self.started = True
         self.storage.start_cleanup_thread()
         self.backup.start()
+        self.agents.start()
         for cam in self.cameras.values():
             cam.start()
 
     def stop(self):
+        self.agents.stop()
         for cam in self.cameras.values():
             cam.stop()
 
@@ -253,7 +263,7 @@ def cmd_setup(args):
         cam = config.cameras[0]
         if ans.get("camera_name"):
             cam["name"] = ans["camera_name"]
-        cam["onvif"] = {"host": ip, "port": int(ans.get("onvif_port") or 8899), "username": user, "password": cam_pw}
+        cam["onvif"] = {"host": ip, "port": int(ans.get("onvif_port") or 8888), "username": user, "password": cam_pw}
         main_url, sub_url = find_streams(ip, user, cam_pw, report=report)
         if main_url:
             cam["main_url"], cam["sub_url"] = main_url, sub_url

@@ -22,8 +22,14 @@ def probe(url, timeout=15):
     except (subprocess.TimeoutExpired, OSError):
         return None
     vals = dict(line.split("=", 1) for line in r.stdout.splitlines() if "=" in line)
-    if r.returncode == 0 and vals.get("width"):
-        return int(vals["width"]), int(vals["height"]), vals.get("codec_name")
+    try:
+        w, h = int(vals.get("width") or 0), int(vals.get("height") or 0)
+    except ValueError:
+        return None
+    # Some cameras (Hiseeu) answer on addresses they don't really serve: ffprobe then
+    # reports a video stream of 0x0 that never gives a picture. That isn't video.
+    if r.returncode == 0 and w > 0 and h > 0:
+        return w, h, vals.get("codec_name")
     return None
 
 
@@ -34,7 +40,7 @@ CANDIDATE_PATHS = [
     "/user={u}&password={p}&channel=1&stream=0.sdp?real_stream",
     "/user={u}&password={p}&channel=1&stream=1.sdp?real_stream",
     "/live/main", "/live/sub", "/live/ch00_0", "/live/ch00_1",
-    "/stream0", "/stream1", "/11", "/12", "/ch0_0.264", "/ch0_1.264",
+    "/stream0", "/stream1", "/ch0_0.264", "/ch0_1.264", "/11", "/12",
     "/cam/realmonitor?channel=1&subtype=0", "/cam/realmonitor?channel=1&subtype=1",
     "/h264/ch1/main/av_stream", "/h264/ch1/sub/av_stream", "/onvif1", "/onvif2", "/",
 ]

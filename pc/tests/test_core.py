@@ -319,3 +319,76 @@ def test_plain_errors():
 
     assert "timestamps" in _plain_error("[mpegts @ 0000] first pts and dts value must be set")
     assert "password" in _plain_error("[rtsp @ 0x1] method DESCRIBE failed: 401 Unauthorized")
+
+
+def test_probe_ignores_empty_video(monkeypatch):
+    """Hiseeu cameras answer on addresses they don't serve with a 0x0 video stream. That must
+    not be saved as the small stream, or the live picture stays black."""
+    from camhub import discovery
+
+    class R:
+        returncode = 0
+
+        def __init__(self, out):
+            self.stdout = out
+
+    monkeypatch.setattr(discovery.subprocess, "run",
+                        lambda *a, **k: R("codec_name=hevc\nwidth=0\nheight=0\n"))
+    assert discovery.probe("rtsp://cam/12") is None
+    monkeypatch.setattr(discovery.subprocess, "run",
+                        lambda *a, **k: R("codec_name=hevc\nwidth=800\nheight=448\n"))
+    assert discovery.probe("rtsp://cam/ch0_1.264") == (800, 448, "hevc")
+
+    sizes = {"/11": None, "/12": None, "/ch0_0.264": (2880, 1620, "hevc"), "/ch0_1.264": (800, 448, "hevc")}
+    monkeypatch.setattr(discovery, "probe", lambda url, timeout=15: next(
+        (v for k, v in sizes.items() if url.endswith(k)), None))
+
+    class Sock:
+        def close(self):
+            pass
+
+    monkeypatch.setattr("socket.create_connection", lambda *a, **k: Sock())
+    main, sub = discovery.find_streams("192.168.0.18", "admin", "pw", report=lambda *_: None)
+    assert main.endswith("/ch0_0.264") and sub.endswith("/ch0_1.264")
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_live_picture_uses_main_stream_when_small_one_is_empty(tmp_path, monkeypatch):
+    """A small stream that never gives pictures (like /12 on a Hiseeu) shouldn't leave the
+    live view black: after a couple of tries the main stream is used instead."""
+    import threading
+    import time
+
+    from camhub import camera as cam_mod
+    from camhub.config import DEFAULT_MOTION
+    from camhub.events import EventBus
+
+    video = tmp_path / "main.mkv"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=10",
+                    "-t", "4", "-c:v", "libx264", "-g", "10", str(video)], check=True)
+    empty = tmp_path / "empty.mkv"
+    empty.write_bytes(b"")
+    monkeypatch.setattr(cam_mod.Camera, "SUB_GIVE_UP", 2)
+    sleeps = []
+    real_sleep = time.sleep
+    monkeypatch.setattr(cam_mod.time, "sleep", lambda s: (sleeps.append(s), real_sleep(min(s, 0.05))))
+
+    (tmp_path / "config.json").write_text(json.dumps({"storage": {"path": str(tmp_path / "rec")},
+                                                       "cameras": []}))
+    cfg = Config(str(tmp_path / "config.json"))
+    c = {"id": "garden", "name": "Garden", "main_url": str(video), "sub_url": str(empty),
+         "motion": dict(DEFAULT_MOTION)}
+
+    class NoPeople:
+        available = False
+
+    cam = cam_mod.Camera(c, Storage(cfg), EventBus(), NoPeople())
+    threading.Thread(target=cam._analyze_loop, daemon=True).start()
+    t0 = time.monotonic()
+    while not cam.analyzer_online and time.monotonic() - t0 < 30:
+        real_sleep(0.2)
+    assert cam.analyzer_online
+    assert cam._analyze_url() == str(video)
+    cam.wait_frame(0, timeout=5)
+    assert cam._frame is not None and cam._frame.shape[1] == 640
+    cam.stop()

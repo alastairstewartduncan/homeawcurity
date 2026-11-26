@@ -7,6 +7,12 @@ Windows recorder and an Android app.
   each clip starts just before the motion. Nothing is written to disk while the scene is still.
 - **Person detection** so trees, rain, cars and cats don't fill the disk (switchable per camera).
 - **Areas to ignore**: outline a road or a hedge and movement there is ignored.
+- **Timeline** under each live picture: drag back through the day to find a recording. Clips show
+  as marks with gaps between them (nothing is recorded when nothing moves); a gap jumps to the next
+  recording, and playback carries on through the day's clips. Zoom to 6 or 1 hours, or step to
+  earlier days.
+- **Privacy areas**: cover a neighbour's window or the street with blur or black. They are hidden in
+  the live picture, saved pictures, phone alerts and new recordings (Settings > Privacy).
 - **Live view and recordings** on the PC (in its own window) and on the phone, by day, with
   thumbnails, a "People" filter, download and delete.
 - **Phone alerts** with a snapshot when a recording starts, sent straight from your PC to the app.
@@ -117,6 +123,34 @@ numbers and dashes only).
 The app shows a quiet "Watching for alerts" notification while it listens. That's Android's rule
 for apps that keep a connection open; you can hide it by long-pressing it and turning off the
 "Background connection" category.
+
+## AI agents and skills (AI tab)
+
+The **AI** tab lets you add your own AI helpers that look at the camera picture when something happens.
+
+- **AI sources**: choose who does the thinking. Anthropic (Claude), OpenAI, Google Gemini, Ollama running on your
+  own PC, or any OpenAI-compatible service (LM Studio, OpenRouter, Groq and others). Paste your API key, press
+  **Load models** and pick a model that can look at pictures. Keys stay in `config.json` on the PC and are never sent
+  back to the browser or the phone. Add as many sources as you like; each agent can use a different one and model.
+- **Skills**: reusable know-how in plain words, such as "Spot deliveries". Three examples are included.
+- **Agents**: say what to watch for and when to tell you, choose the skills, when it runs (person seen, recording
+  starts or finishes, or every few minutes), which cameras, and the AI source and model. The agent sends a phone
+  alert (with the picture) when it decides you should know. **Test now** shows what it would do on the current picture.
+- **Create with AI**: describe what you want and the AI writes the agent and any new skills for you to check.
+  Editors also have **Change it with AI**.
+- **What the agents saw** lists every time an agent looked, with its picture and reasoning. A copy is kept in
+  `ai_activity.jsonl` next to `config.json`.
+
+- **Recording descriptions**: turn on "Describe each new recording" (AI tab > Recordings and morning digest) and
+  each clip gets a one-line description, such as "A courier in a yellow jacket leaves a parcel", shown under it.
+  **Describe the last day's recordings** fills in older clips, and the player has **Describe with AI**.
+- **Morning digest**: at the time you choose, your phone gets a summary of the last 24 hours, such as
+  "2 deliveries, 1 unknown person", with the best clip.
+- **Ask your recordings**: type a question at the top of the Recordings tab, such as "when did the postman come?",
+  and jump straight to the matching clips. It works from the descriptions, so turn those on first.
+
+Each look is one AI request, so a cloud AI is charged per look. Use the quiet time and the "Every few minutes"
+setting to keep costs down, or run a local model with Ollama for free.
 
 ## 3. Watching from outside the house
 

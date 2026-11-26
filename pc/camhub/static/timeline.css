@@ -1,0 +1,51 @@
+/* Timeline under the live picture, and the privacy areas editor. */
+/* Leave room under the live picture for the timeline. */
+#live .video-wrap { max-height: calc(100vh - 290px); }
+.tl-player { position: relative; background: #000; aspect-ratio: 16/9; max-height: calc(100vh - 290px); width: 100%; }
+.tl-player video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+.tl-label { position: absolute; top: 8px; left: 8px; padding: 3px 9px; border-radius: 99px; font-size: 12px;
+  background: rgba(0,0,0,.65); color: #fff; pointer-events: none; }
+
+.tl { padding: 10px 12px 4px; border-top: 1px solid var(--line); }
+.tl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+.tl-row > button:not(.primary) { padding: 4px 10px; }
+.tl-prev, .tl-next { font-size: 18px; line-height: 1; }
+.tl-day { font-weight: 600; min-width: 74px; text-align: center; }
+.tl-info { flex: 1; min-width: 120px; font-size: 13px; color: var(--muted); }
+.tl-zoom button { padding: 4px 10px; font-size: 13px; }
+.tl-live { padding: 4px 12px; }
+
+.tl-bar { position: relative; height: 40px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line);
+  cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; outline: none; }
+.tl-bar:focus-visible { border-color: var(--accent); }
+.tl-marks { position: absolute; inset: 6px 0; overflow: hidden; }
+.tl-mark { position: absolute; top: 0; bottom: 0; min-width: 3px; border-radius: 2px; background: var(--accent); opacity: .85; }
+.tl-mark.person { background: var(--warn); }
+.tl-mark.current { opacity: 1; box-shadow: 0 0 0 2px var(--text); }
+.tl-mark.rec { background: var(--rec); animation: tl-pulse 1.4s ease-in-out infinite; }
+@keyframes tl-pulse { 50% { opacity: .45; } }
+.tl-future { position: absolute; top: 0; bottom: 0; right: 0; border-radius: 0 8px 8px 0;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(128,128,128,.14) 6px 12px); pointer-events: none; }
+.tl-head { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); pointer-events: none; }
+.tl-head::before { content: ""; position: absolute; top: -2px; left: -5px; border: 6px solid transparent; border-top-color: var(--text); }
+.tl-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--muted); pointer-events: none; }
+.tl-bubble { position: absolute; bottom: calc(100% + 8px); transform: translateX(-50%); z-index: 3; width: 170px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; pointer-events: none;
+  box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 12px; }
+.tl-bubble.flip { transform: translateX(-90%); }
+.tl-bubble.flop { transform: translateX(-10%); }
+.tl-bubble span { display: block; padding: 5px 8px; }
+.tl-thumb { aspect-ratio: 16/9; background: #000 center/cover no-repeat; }
+.tl-ticks { position: relative; height: 18px; font-size: 11px; color: var(--muted); }
+.tl-ticks span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
+.tl-ticks span:first-child { transform: none; }
+
+.privacy-editor canvas { touch-action: none; }
+.privacy-editor.no-picture::after { content: "No picture from the camera yet"; position: absolute; inset: 0;
+  display: grid; place-items: center; color: #aaa; font-size: 13px; pointer-events: none; }
+.privacy-card .hint { font-size: 13px; margin-bottom: 0; }
+
+@media (max-width: 640px) {
+  .tl-info { order: 5; flex-basis: 100%; }
+  .tl-live { margin-left: auto; }
+}

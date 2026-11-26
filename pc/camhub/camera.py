@@ -23,6 +23,7 @@ import time
 import cv2
 import numpy as np
 
+from . import privacy
 from .tsbuffer import PreRollBuffer, TsPacketizer, TsStream
 
 log = logging.getLogger("camhub.camera")
@@ -146,8 +147,9 @@ class ClipWriter:
     """Pipes MPEG-TS into ffmpeg, which writes an MP4 without re-encoding the video."""
 
     def __init__(self, base_path, clip_id, cam_id, started, trigger, person, thumb_jpeg, header_bytes,
-                 started_mono=None):
+                 started_mono=None, privacy_settings=None):
         self.base = base_path
+        self.privacy = privacy_settings  # areas to cover once the clip is finished, or None
         self.clip_id = clip_id
         self.cam_id = cam_id
         self.started = started
@@ -207,6 +209,13 @@ class ClipWriter:
 
         def finish():
             self.thread.join(timeout=30)
+            # The pump has closed ffmpeg's input. Python 3.12's communicate() tries to flush it
+            # again and fails, which left every finished clip unsaved, so let go of it first.
+            try:
+                self.proc.stdin.close()
+            except OSError:
+                pass
+            self.proc.stdin = None
             try:
                 _, err = self.proc.communicate(timeout=60)
             except subprocess.TimeoutExpired:
@@ -214,6 +223,7 @@ class ClipWriter:
                 _, err = self.proc.communicate()
             meta = None
             if self.proc.returncode == 0 and os.path.exists(self.part) and os.path.getsize(self.part) > 0:
+                masked = self._cover_privacy_areas()
                 os.replace(self.part, self.base + ".mp4")
                 meta = {
                     "id": self.clip_id,
@@ -223,6 +233,8 @@ class ClipWriter:
                     "person": self.person,
                     "trigger": self.trigger,
                 }
+                if masked:
+                    meta["privacy_masked"] = True
                 with open(self.base + ".json", "w", encoding="utf-8") as f:
                     json.dump(meta, f)
                 log.info("Saved clip %s (%.0f s)", self.clip_id, duration)
@@ -237,6 +249,18 @@ class ClipWriter:
                 on_done(meta)
 
         threading.Thread(target=finish, name=f"finish-{self.clip_id}", daemon=True).start()
+
+    def _cover_privacy_areas(self):
+        """Makes the finished clip again with the privacy areas covered. True if it did."""
+        if not self.privacy:
+            return False
+        tmp = self.base + ".private.mp4.part"
+        if privacy.mask_clip(self.part, tmp, self.privacy):
+            os.replace(tmp, self.part)
+            log.info("Covered the privacy areas in clip %s", self.clip_id)
+            return True
+        log.error("Clip %s is kept without its privacy areas covered", self.clip_id)
+        return False
 
     def mark_person(self):
         self.person = True
@@ -253,6 +277,10 @@ class Camera:
         self.events = events
         self.detector = detector
         self.ptz = ptz
+        from .audio import AudioRelay
+        self.audio = AudioRelay(self.id, lambda: self.cfg.get("sub_url") or self.cfg.get("main_url"))
+        from .talk import Talker
+        self.talker = Talker(self.id, lambda: self.cfg.get("main_url"))
 
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -266,6 +294,8 @@ class Camera:
         self.analyzer_problem = None
         self._use_ffmpeg_decoder = False
         self._connecting_since = None
+        self._sub_failures = 0      # tries in a row the small stream gave no pictures
+        self._sub_failed_url = None
 
         self._frame = None          # latest sub stream frame (BGR)
         self._frame_id = 0
@@ -274,6 +304,11 @@ class Camera:
         self._mask = None
         self._mask_key = None
         self.motion_level = 0.0
+        self.motion_x = 0.5         # where across the picture the movement is (0 left, 1 right)
+        self._quiet_until = 0.0     # ignore motion until then: the camera itself is turning
+        self._patrol_pause_until = 0.0
+        self._patrol_i = -1
+        self._follow_next = 0.0
         self.last_person = None     # (time, boxes)
 
     @property
@@ -286,11 +321,82 @@ class Camera:
         self._connecting_since = time.monotonic()
         threading.Thread(target=self._stream_loop, name=f"stream-{self.id}", daemon=True).start()
         threading.Thread(target=self._analyze_loop, name=f"analyze-{self.id}", daemon=True).start()
+        self.talker.start()
         if self.ptz is not None:
-            threading.Thread(target=self.ptz.connect, name=f"ptz-{self.id}", daemon=True).start()
+            threading.Thread(target=self._ptz_loop, name=f"ptz-{self.id}", daemon=True).start()
+            threading.Thread(target=self._patrol_loop, name=f"patrol-{self.id}", daemon=True).start()
+
+    @property
+    def ptz_cfg(self):
+        return self.cfg.setdefault("ptz", {"presets": [], "patrol": {"enabled": False, "dwell_seconds": 30},
+                                           "follow_motion": False})
+
+    def ptz_moved(self, manual=True, seconds=6):
+        """Call whenever the camera turns, so turning doesn't count as motion."""
+        now = time.monotonic()
+        self._quiet_until = max(self._quiet_until, now + seconds)
+        if manual:
+            # Someone is steering by hand: don't let the patrol pull the camera away.
+            self._patrol_pause_until = now + 120
+
+    def _patrol_loop(self):
+        last_move = 0.0
+        while not self._stop.wait(1):
+            p = self.ptz_cfg
+            patrol = p.get("patrol") or {}
+            presets = p.get("presets") or []
+            if not patrol.get("enabled") or len(presets) < 2 or not (self.ptz and self.ptz.available):
+                continue
+            now = time.monotonic()
+            # Stay put while recording, so the camera keeps watching what set it off.
+            if self.clip is not None or now < self._patrol_pause_until:
+                continue
+            dwell = max(10, min(3600, int(patrol.get("dwell_seconds") or 30)))
+            if now - last_move < dwell:
+                continue
+            self._patrol_i = (self._patrol_i + 1) % len(presets)
+            target = presets[self._patrol_i]
+            try:
+                self.ptz.goto_preset(target["token"])
+                self.ptz_moved(manual=False, seconds=8)
+                log.info("[%s] Patrol: turning to %s", self.id, target.get("name"))
+            except Exception as e:
+                log.warning("[%s] Patrol couldn't turn to %s: %s", self.id, target.get("name"), e)
+            last_move = now
+
+    def _follow(self, now):
+        """Turns a little towards movement at the edge of the picture."""
+        if not self.ptz_cfg.get("follow_motion") or not (self.ptz and self.ptz.available):
+            return
+        if now < self._follow_next or not (self.motion_x < 0.2 or self.motion_x > 0.8):
+            return
+        self._follow_next = now + 8
+        self._patrol_pause_until = now + 60
+        self.ptz_moved(manual=False, seconds=4)
+        direction = -0.6 if self.motion_x < 0.5 else 0.6
+
+        def turn():
+            try:
+                self.ptz.nudge(direction)
+            except Exception as e:
+                log.warning("[%s] Couldn't turn towards the movement: %s", self.id, e)
+
+        threading.Thread(target=turn, daemon=True).start()
+
+    def _ptz_loop(self):
+        # The camera may be asleep or rebooting when we start, so keep trying until pan and
+        # tilt answer. Otherwise the arrows would stay hidden until Home Camera restarts.
+        wait = 15
+        while not self._stop.is_set() and not self.ptz.available:
+            if self.ptz.connect():
+                break
+            self._stop.wait(wait)
+            wait = min(wait * 2, 300)
 
     def stop(self):
         self._stop.set()
+        self.audio.stop()
+        self.talker.stop()
         proc = getattr(self, "_proc", None)
         if proc and proc.poll() is None:
             proc.kill()
@@ -312,6 +418,12 @@ class Camera:
                 "motion_level": round(self.motion_level, 2),
                 "ptz": bool(self.ptz and self.ptz.available),
                 "ptz_error": self.ptz.error if self.ptz else "Not configured",
+                "ptz_zoom": bool(self.ptz and self.ptz.available and self.ptz.zoom),
+                "talk": bool(self.talker.supported),
+                "presets": [{"name": p.get("name"), "token": p.get("token")} for p in self.ptz_cfg.get("presets", [])],
+                "patrol": bool((self.ptz_cfg.get("patrol") or {}).get("enabled")),
+                "patrol_seconds": int((self.ptz_cfg.get("patrol") or {}).get("dwell_seconds") or 30),
+                "follow_motion": bool(self.ptz_cfg.get("follow_motion")),
                 "person_detection": self.detector.available,
             }
 
@@ -464,7 +576,8 @@ class Camera:
             thumb = buf.tobytes() if ok else None
         header = self.ts.headers() + self.preroll.snapshot()
         self.clip = ClipWriter(base, clip_id, self.id, started, trigger, person, thumb, header,
-                               started_mono=self.preroll.gops[0][0])
+                               started_mono=self.preroll.gops[0][0],
+                               privacy_settings=privacy.for_recording(self.cfg))
         self.last_activity = time.monotonic()
         log.info("[%s] Recording started (%s)", self.id, trigger)
         self.events.publish({
@@ -504,7 +617,13 @@ class Camera:
         """Opens the stream with OpenCV, or with our own ffmpeg if OpenCV can't."""
         if not self._use_ffmpeg_decoder:
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+            # Without timeouts OpenCV can wait for ever on a camera that stops sending (seen on a
+            # Hiseeu WHC905), leaving the live picture frozen with nothing in the log.
+            params = []
+            for name in ("CAP_PROP_OPEN_TIMEOUT_MSEC", "CAP_PROP_READ_TIMEOUT_MSEC"):
+                if hasattr(cv2, name):
+                    params += [getattr(cv2, name), 15000]
+            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG, params) if params else cv2.VideoCapture(url, cv2.CAP_FFMPEG)
             if cap.isOpened():
                 return cap
             cap.release()
@@ -517,15 +636,39 @@ class Camera:
         self._use_ffmpeg_decoder = False
         return None
 
+    # After this many tries in a row with no pictures from the small stream, the live picture
+    # and motion detection use the main stream instead.
+    SUB_GIVE_UP = 2
+
+    def _analyze_url(self):
+        """The stream to watch: the small one, unless it keeps giving no pictures."""
+        sub, main = self.cfg.get("sub_url"), self.cfg.get("main_url")
+        if sub != self._sub_failed_url:
+            self._sub_failed_url, self._sub_failures = sub, 0
+        if sub and (self._sub_failures < self.SUB_GIVE_UP or not main):
+            return sub
+        if sub and self._sub_failures == self.SUB_GIVE_UP:
+            self._sub_failures += 1  # only say it once
+            log.warning("[%s] The small stream gives no pictures, so the main stream will be used for "
+                        "the live picture and motion detection. Press Find and save in Settings > Cameras "
+                        "to look for a better small stream.", self.id)
+        return main
+
     def _analyze_loop(self):
         backoff = 2
         while not self._stop.is_set():
-            url = self.cfg.get("sub_url") or self.cfg.get("main_url")
+            url = self._analyze_url()
             if not url:
                 time.sleep(5)
                 continue
+            using_sub = url == self.cfg.get("sub_url") and url != self.cfg.get("main_url")
             cap = self._open_capture(url)
             if cap is None:
+                if using_sub:
+                    self._sub_failures += 1
+                    if self._sub_failures >= self.SUB_GIVE_UP:
+                        self._use_ffmpeg_decoder = False
+                        continue
                 self.analyzer_problem = "couldn't open the camera's video. Check its IP address and login."
                 log.warning("[%s] Could not open the stream for motion detection, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)
@@ -554,9 +697,13 @@ class Camera:
                             continue
                     break
                 failures = 0
+                # Cover the privacy areas before the picture is used for anything.
+                frame = privacy.apply_to_frame(frame, privacy.settings_of(self.cfg))
                 if not got_frame:
                     got_frame = True
                     backoff = 2
+                    if using_sub:
+                        self._sub_failures = 0
                     self.analyzer_online = True
                     self.analyzer_problem = None
                 with self._frame_cond:
@@ -568,19 +715,25 @@ class Camera:
                     last_analyze = now
                     m = self.motion
                     key = (m["sensitivity"],)
-                    if bg is None or key != bg_key:
-                        var = float(np.interp(m["sensitivity"], [1, 10], [60, 8]))
-                        bg = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=var, detectShadows=False)
-                        bg_key = key
-                        streak = 0
-                    level = self._motion_level(bg, frame)
-                    self.motion_level = level
-                    moving = level >= float(m["min_area_percent"])
-                    streak = streak + 1 if moving else 0
-                    if streak >= 2:
-                        self._on_motion(frame, now, last_person_check)
-                        if self.detector.available and now - last_person_check >= 1.0:
-                            last_person_check = now
+                    if now < self._quiet_until:
+                        # The camera is turning, so everything "moves". Start afresh afterwards.
+                        bg, streak = None, 0
+                        self.motion_level = 0.0
+                    else:
+                        if bg is None or key != bg_key:
+                            var = float(np.interp(m["sensitivity"], [1, 10], [60, 8]))
+                            bg = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=var, detectShadows=False)
+                            bg_key = key
+                            streak = 0
+                        level = self._motion_level(bg, frame)
+                        self.motion_level = level
+                        moving = level >= float(m["min_area_percent"])
+                        streak = streak + 1 if moving else 0
+                        if streak >= 2:
+                            self._follow(now)
+                            self._on_motion(frame, now, last_person_check)
+                            if self.detector.available and now - last_person_check >= 1.0:
+                                last_person_check = now
                 if is_file:
                     delay = 1.0 / src_fps - (time.monotonic() - t0)
                     if delay > 0:
@@ -592,6 +745,11 @@ class Camera:
                 if not isinstance(cap, FfmpegCapture):
                     log.warning("[%s] OpenCV gave no pictures, so ffmpeg will decode it instead", self.id)
                     self._use_ffmpeg_decoder = True
+                elif using_sub:
+                    self._sub_failures += 1
+                    if self._sub_failures >= self.SUB_GIVE_UP:
+                        self._use_ffmpeg_decoder = False
+                        continue
             if not self._stop.is_set():
                 log.warning("[%s] Motion stream lost, retrying in %d s", self.id, backoff)
                 time.sleep(backoff)
@@ -621,6 +779,9 @@ class Camera:
         fg = cv2.bitwise_and(fg, mask)
         fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         area = max(1, int(np.count_nonzero(mask)))
+        cols = np.count_nonzero(fg, axis=0)
+        if cols.sum():
+            self.motion_x = float((cols * np.arange(len(cols))).sum() / cols.sum() / max(1, len(cols) - 1))
         return 100.0 * np.count_nonzero(fg) / area
 
     def _in_ignore_zone(self, box):

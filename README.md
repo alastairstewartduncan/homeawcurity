@@ -242,10 +242,9 @@ and the phone app fetches it from the PC and installs it over itself (the first 
 you to allow this). Everything is in **Settings > Updates**, including **Check now** and
 **Install now**.
 
-Because this project is private on GitHub, the PC needs a read-only GitHub key to see the
-download page: a fine-grained personal access token for this repository only, with
-**Contents: Read-only**. Paste it into Settings > Updates. (If the project is made public, no key
-is needed.)
+The project is public on GitHub, so no key is needed. If it is ever made private, the PC needs a
+read-only GitHub key to see the download page: a fine-grained personal access token for this
+repository only, with **Contents: Read-only**, pasted into Settings > Updates.
 
 The phone app must be signed with the same key in every build, or Android won't install an update
 over it. The build reads that key from the `ANDROID_KEYSTORE_B64` Actions secret (the keystore file,

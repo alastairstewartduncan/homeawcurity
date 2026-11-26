@@ -211,3 +211,83 @@ def test_agent_reports_missing_source(tmp_path):
     agent = hub.agents.section["agents"][0]
     rec = hub.agents.run(agent, "front", "manual", {})
     assert "Add an AI source" in rec["error"] and rec["alert"] is False
+
+
+def _make_clip(hub, when, person=True):
+    import datetime
+
+    import cv2
+    import numpy as np
+    clip_id, base = hub.storage.new_clip_paths("front", when)
+    os.makedirs(os.path.dirname(base), exist_ok=True)
+    w = cv2.VideoWriter(base + ".mp4", cv2.VideoWriter_fourcc(*"mp4v"), 10, (320, 240))
+    for i in range(30):
+        img = np.full((240, 320, 3), i * 8, np.uint8)
+        w.write(img)
+    w.release()
+    with open(base + ".json", "w") as f:
+        json.dump({"start": when.isoformat(timespec="seconds"), "duration": 3, "person": person}, f)
+    return clip_id
+
+
+def test_recording_descriptions_digest_and_questions(tmp_path, fake_ai):
+    import datetime
+
+    from fastapi.testclient import TestClient
+
+    from camhub.recordings_ai import clip_frames, wait_until_idle
+    from camhub.server import create_app
+
+    hub, cfg_path = make_hub(tmp_path)
+    client = TestClient(create_app(hub))
+    client.post("/api/login", json={"password": "pw123456"})
+    client.post("/api/ai/sources", json={"name": "Claude", "kind": "anthropic", "base_url": fake_ai.url,
+                                         "api_key": "sk-secret-1234", "model": "claude-test"})
+    now = datetime.datetime.now().replace(microsecond=0)
+    c1 = _make_clip(hub, now - datetime.timedelta(hours=2))
+    c2 = _make_clip(hub, now - datetime.timedelta(hours=1), person=False)
+    assert len(clip_frames(hub.storage.clip_base(c1) + ".mp4")) == 3
+
+    # Turned off by default: nothing is described.
+    assert client.get("/api/ai/recordings").json()["settings"]["summaries"] is False
+    r = client.put("/api/ai/recordings", json={"summaries": True, "digest": True, "digest_time": "25:99"})
+    assert r.json()["summaries"] and r.json()["digest_time"] == "08:00"
+
+    rec = hub.agents.recordings
+    rec.start()
+    try:
+        fake_ai.reply = '{"summary": "A courier in a yellow jacket leaves a parcel.", "tags": ["delivery", "bogus"]}'
+        hub.agents.on_event({"type": "clip_saved", "camera": "front", "clip": c1})
+        wait_until_idle(rec)
+    finally:
+        rec.stop()
+    clips = client.get("/api/clips", params={"date": c1.split("_")[1][:4] + "-" + c1.split("_")[1][4:6] + "-"
+                                              + c1.split("_")[1][6:]}).json()
+    by_id = {c["id"]: c for c in clips}
+    assert by_id[c1]["summary"].startswith("A courier") and by_id[c1]["tags"] == ["delivery"]
+    assert by_id[c2]["summary"] == ""
+    body = fake_ai.requests[-1][3]
+    assert sum(1 for p in body["messages"][0]["content"] if p["type"] == "image") == 3
+
+    # Describe one recording on request.
+    fake_ai.reply = '{"summary": "A cat crosses the lawn.", "tags": ["animal"]}'
+    assert client.post("/api/ai/recordings/describe", json={"clip": c2}).json()["tags"] == ["animal"]
+
+    # Ask your recordings: the AI only sees descriptions and may only point at real clips.
+    fake_ai.reply = json.dumps({"answer": "The courier came about two hours ago.", "clips": [c1, "made-up"]})
+    a = client.post("/api/ai/ask", json={"question": "when did the postman come?"}).json()
+    assert a["answer"].startswith("The courier") and [c["id"] for c in a["clips"]] == [c1]
+    sent = fake_ai.requests[-1][3]["messages"][0]["content"][0]["text"]
+    assert "yellow jacket" in sent and "postman" in sent
+
+    # Morning digest goes to the phone as an event.
+    q = hub.events.subscribe()
+    fake_ai.reply = json.dumps({"headline": "1 delivery, 1 cat", "details": "A parcel came at 07:00.",
+                                "highlights": [c1]})
+    d = client.post("/api/ai/digest").json()
+    assert d["count"] == 2 and d["text"].startswith("1 delivery, 1 cat") and d["highlights"] == [c1]
+    e = q.get_nowait()
+    while e["type"] != "ai_digest":
+        e = q.get_nowait()
+    assert e["clip"] == c1
+    assert client.get("/api/ai/recordings").json()["digests"][0]["text"].startswith("1 delivery")

@@ -173,7 +173,8 @@ function renderClips() {
     b.innerHTML = `<div class="thumb" style="background-image:url('/api/clips/${c.id}/thumb')">
         <span class="badge ${c.person ? 'person' : ''}">${c.person ? 'Person' : 'Motion'}</span></div>
       <div class="meta"><span>${t.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}${multi ? ' · ' + camName(c.camera) : ''}</span>
-      <span class="muted">${fmtDur(c.duration)}</span></div>`;
+      <span class="muted">${fmtDur(c.duration)}</span></div>
+      ${c.summary ? `<div class="ai-summary" title="Described by AI">${esc(c.summary)}</div>` : ''}`;
     b.addEventListener('click', () => openClip(c.id));
     wrap.appendChild(b);
   }
@@ -188,7 +189,8 @@ function openClip(id) {
   v.play().catch(() => {});
   const when = c ? new Date(c.start) : null;
   $('#player-title').textContent = when
-    ? `${camName(c.camera)} · ${when.toLocaleString()} · ${c.person ? 'Person' : 'Motion'}` : id;
+    ? `${camName(c.camera)} · ${when.toLocaleString()} · ${c.summary || (c.person ? 'Person' : 'Motion')}` : id;
+  $('#describe').classList.toggle('hidden', !c || !!c.summary || !window.describeClip);
   $('#download').href = `/api/clips/${id}/video?download=1`;
   $('#player').classList.remove('hidden');
   const list = visibleClips(); const i = list.findIndex(x => x.id === id);
@@ -474,6 +476,11 @@ function listen() {
     const e = JSON.parse(m.data);
     if (e.type === 'clip_started') toast(`${e.camera_name}: ${e.person ? 'person seen' : 'movement'}, recording`);
     if (e.type === 'person') toast(`${e.camera_name}: person seen`);
+    if (e.type === 'clip_described') {
+      const c = clipList.find(x => x.id === e.clip);
+      if (c) { c.summary = e.summary; c.tags = e.tags; if (!playing) renderClips(); }
+    }
+    if (e.type === 'ai_digest') toast('Morning digest: ' + (e.text || '').split('\n')[0]);
     if (e.type === 'ai_alert') {
       toast(`${e.camera_name} · ${e.agent_name}: ${e.message}`);
       if (window.refreshAiActivity && !$('#tab-ai').classList.contains('hidden')) window.refreshAiActivity();

@@ -6,6 +6,7 @@ from fastapi.responses import Response
 
 from . import ai
 from .agents import TRIGGERS, AgentRunner, clean_agent, clean_skill, clean_source
+from .recordings_ai import clean_settings
 
 
 def _public_source(s):
@@ -51,6 +52,7 @@ def add_ai_routes(app, hub):
             "default_source": sec.get("default_source", ""),
             "skills": sec["skills"],
             "agents": sec["agents"],
+            "recordings": sec.get("recordings", {}),
             "cameras": [{"id": c["id"], "name": c.get("name") or c["id"]} for c in config.cameras],
         }
 
@@ -214,3 +216,60 @@ def add_ai_routes(app, hub):
         if data is None:
             raise HTTPException(404, "Picture no longer kept")
         return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+    # ---- recordings: descriptions, morning digest, questions --------------------------
+
+    def rec_ai():
+        return runner().recordings
+
+    @app.get("/api/ai/recordings")
+    def get_recordings_ai():
+        r = rec_ai()
+        return {"settings": r.settings, "digests": list(reversed(r.digests)), "pending": r.pending()}
+
+    @app.put("/api/ai/recordings")
+    async def put_recordings_ai(request: Request):
+        b = await body_of(request)
+        sec = section()
+        sec["recordings"] = clean_settings(b, {s["id"] for s in sec["sources"]})
+        config.save()
+        return sec["recordings"]
+
+    @app.post("/api/ai/recordings/describe")
+    async def describe_recordings(request: Request):
+        """{"clip": id} describes one recording now; {"days": n} queues the undescribed ones."""
+        b = await body_of(request)
+        if b.get("clip"):
+            try:
+                return await asyncio.to_thread(rec_ai().describe, str(b["clip"]))
+            except ai.AIError as e:
+                raise ai_error(e)
+        try:
+            days = max(1, min(30, int(b.get("days") or 1)))
+        except (TypeError, ValueError):
+            days = 1
+        if not section()["sources"]:
+            raise HTTPException(400, "Add an AI source first (AI tab > AI sources).")
+        return {"queued": await asyncio.to_thread(rec_ai().describe_missing, days, 200)}
+
+    @app.post("/api/ai/digest")
+    async def digest_now():
+        try:
+            return await asyncio.to_thread(rec_ai().make_digest, 24, True)
+        except ai.AIError as e:
+            raise ai_error(e)
+
+    @app.post("/api/ai/ask")
+    async def ask(request: Request):
+        b = await body_of(request)
+        q = str(b.get("question") or "").strip()
+        if len(q) < 3:
+            raise HTTPException(400, "Type a question first")
+        try:
+            days = max(1, min(30, int(b.get("days") or 7)))
+        except (TypeError, ValueError):
+            days = 7
+        try:
+            return await asyncio.to_thread(rec_ai().ask, q[:500], days)
+        except ai.AIError as e:
+            raise ai_error(e)

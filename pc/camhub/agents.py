@@ -158,6 +158,8 @@ class AgentRunner:
         self._log_path = os.path.join(os.path.dirname(self.config.path), "ai_activity.jsonl")
         self._load_activity()
         self._ensure_section()
+        from .recordings_ai import RecordingAI
+        self.recordings = RecordingAI(self)
 
     # ---- settings -----------------------------------------------------------
 
@@ -201,9 +203,11 @@ class AgentRunner:
         threading.Thread(target=self._listen, name="ai-events", daemon=True).start()
         threading.Thread(target=self._work, name="ai-worker", daemon=True).start()
         threading.Thread(target=self._schedule, name="ai-schedule", daemon=True).start()
+        self.recordings.start()
 
     def stop(self):
         self._stop.set()
+        self.recordings.stop()
 
     def _listen(self):
         q = self.hub.events.subscribe()
@@ -221,6 +225,7 @@ class AgentRunner:
             self.hub.events.unsubscribe(q)
 
     def on_event(self, e):
+        self.recordings.on_event(e)
         kinds = {"person": "person", "clip_started": "motion", "clip_saved": "clip_saved"}
         trig = kinds.get(e.get("type"))
         if not trig:

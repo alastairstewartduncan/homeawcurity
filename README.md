@@ -118,6 +118,14 @@ The **AI** tab lets you add your own AI helpers that look at the camera picture 
 - **What the agents saw** lists every time an agent looked, with its picture and reasoning. A copy is kept in
   `ai_activity.jsonl` next to `config.json`.
 
+- **Recording descriptions**: turn on "Describe each new recording" (AI tab > Recordings and morning digest) and
+  each clip gets a one-line description, such as "A courier in a yellow jacket leaves a parcel", shown under it.
+  **Describe the last day's recordings** fills in older clips, and the player has **Describe with AI**.
+- **Morning digest**: at the time you choose, your phone gets a summary of the last 24 hours, such as
+  "2 deliveries, 1 unknown person", with the best clip.
+- **Ask your recordings**: type a question at the top of the Recordings tab, such as "when did the postman come?",
+  and jump straight to the matching clips. It works from the descriptions, so turn those on first.
+
 Each look is one AI request, so a cloud AI is charged per look. Use the quiet time and the "Every few minutes"
 setting to keep costs down, or run a local model with Ollama for free.
 

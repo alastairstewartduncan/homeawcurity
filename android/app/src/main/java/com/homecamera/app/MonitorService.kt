@@ -138,6 +138,10 @@ class MonitorService : Service() {
             handleAiAlert(prefs, e)
             return
         }
+        if (type == "ai_digest") {
+            handleDigest(prefs, e)
+            return
+        }
         if (type != "clip_started" && type != "person") return
         val clip = e.optString("clip")
         val cam = e.optString("camera_name", e.optString("camera"))
@@ -194,6 +198,25 @@ class MonitorService : Service() {
         notify(("ai$run").hashCode(), n.build())
     }
 
+    /** The morning summary of last night's recordings. */
+    private fun handleDigest(prefs: Prefs, e: JSONObject) {
+        val text = e.optString("text")
+        val lines = text.split("\n", limit = 2)
+        val clip = e.optString("clip")
+        val picture = fetchThumb(prefs, clip)
+        val n = NotificationCompat.Builder(this, CHANNEL_AI)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle(lines[0])
+            .setContentText(if (lines.size > 1) lines[1] else "Tap to see the recordings")
+            .setSubText("Morning digest")
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setContentIntent(openApp(this, clip.ifEmpty { null }))
+        if (picture != null) n.setLargeIcon(picture)
+        n.setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        notify(ID_DIGEST, n.build())
+    }
+
     private fun fetchThumb(prefs: Prefs, clip: String): Bitmap? {
         if (clip.isEmpty()) return null
         return fetchPicture(prefs, "/api/clips/$clip/thumb")
@@ -242,6 +265,7 @@ class MonitorService : Service() {
         const val CHANNEL_AI = "ai"
         const val ID_SERVICE = 1
         const val ID_SIGNED_OUT = 2
+        const val ID_DIGEST = 3
         const val ACTION_STOP = "stop"
         const val EXTRA_CLIP = "clip"
 

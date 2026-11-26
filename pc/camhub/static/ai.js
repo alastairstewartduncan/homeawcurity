@@ -16,7 +16,7 @@ async function loadAi() {
   const wrap = $('#ai'); if (!wrap) return;
   try { aiData = await api('/api/ai'); } catch (e) { wrap.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
   wrap.innerHTML = '';
-  wrap.append(createCard(), agentsCard(), skillsCard(), sourcesCard(), activityCard());
+  wrap.append(createCard(), agentsCard(), skillsCard(), sourcesCard(), await recordingsCard(), activityCard());
 }
 window.loadAi = loadAi;
 
@@ -362,3 +362,116 @@ function activityCard() {
   window.refreshAiActivity = load;
   return card;
 }
+
+// ---------- recordings: descriptions and morning digest ----------
+async function recordingsCard() {
+  let r; try { r = await api('/api/ai/recordings'); } catch (e) { return el(`<div class="card">${esc(e.message)}</div>`); }
+  const s = r.settings;
+  const card = el(`<div class="card" id="ai-recordings"><h2>Recordings and morning digest</h2>
+    <label class="inline"><input type="checkbox" name="summaries" ${s.summaries ? 'checked' : ''}> Describe each new recording in one line</label>
+    <p class="muted small" style="margin:4px 0 10px 26px">The description shows under each clip and lets you ask questions about your recordings.
+      Each recording is one AI request.</p>
+    <label class="inline"><input type="checkbox" name="digest" ${s.digest ? 'checked' : ''}> Send a morning digest at
+      <input type="time" name="digest_time" value="${esc(s.digest_time)}" class="num" style="width:auto"></label>
+    <p class="muted small" style="margin:4px 0 10px 26px">For example "2 deliveries, 1 unknown person", sent to your phone with the best clip.</p>
+    <div class="grid-form rec-src">
+      <label>AI source<select name="source"><option value="">${esc(sourceName(''))}</option>
+        ${aiData.sources.map(x => `<option value="${esc(x.id)}" ${x.id === s.source ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label>Model<input name="model" value="${esc(s.model)}" placeholder="Source default"></label>
+    </div>
+    <div class="toolbar"><button class="primary save">Save</button>
+      <button class="backfill">Describe the last day's recordings</button>
+      <button class="digest-now">Make a digest now</button></div>
+    <div class="small muted pending">${r.pending ? r.pending + ' recordings waiting to be described.' : ''}</div>
+    <div class="digests"></div></div>`);
+  const v = (n) => $(`[name=${n}]`, card);
+  const digests = $('.digests', card);
+  function showDigests(list) {
+    digests.innerHTML = '';
+    for (const d of list.slice(0, 5)) {
+      const [head, ...rest] = (d.text || '').split('\n');
+      digests.append(el(`<div class="run"><div class="run-body"><div class="small muted">${esc(fmtWhen(d.time))} · ${d.count} recordings</div>
+        <b>${esc(head)}</b><div class="small">${esc(rest.join(' '))}</div>
+        ${d.undescribed ? `<div class="small muted">${d.undescribed} recordings had no AI description yet.</div>` : ''}</div></div>`));
+    }
+  }
+  showDigests(r.digests);
+  $('.save', card).addEventListener('click', async () => {
+    try {
+      await api('/api/ai/recordings', {method: 'PUT', body: JSON.stringify({summaries: v('summaries').checked,
+        digest: v('digest').checked, digest_time: v('digest_time').value, source: v('source').value, model: v('model').value})});
+      toast('Saved');
+    } catch (e) { toast('Could not save: ' + e.message); }
+  });
+  $('.backfill', card).addEventListener('click', async (ev) => {
+    if (needSource()) return;
+    const done = busy(ev.target, 'Queuing…');
+    try { const q = await api('/api/ai/recordings/describe', {method: 'POST', body: JSON.stringify({days: 1})});
+      $('.pending', card).textContent = q.queued ? `${q.queued} recordings are being described in the background.` : 'Every recording from the last day already has a description.'; }
+    catch (e) { toast(e.message); }
+    done();
+  });
+  $('.digest-now', card).addEventListener('click', async (ev) => {
+    if (needSource()) return;
+    const done = busy(ev.target, 'Writing digest…');
+    try { await api('/api/ai/digest', {method: 'POST', body: '{}'}); showDigests((await api('/api/ai/recordings')).digests); }
+    catch (e) { toast('Digest failed: ' + e.message); }
+    done();
+  });
+  return card;
+}
+
+// ---------- ask your recordings (Recordings tab) ----------
+function clipDay(id) { const d = id.split('_').slice(-2)[0]; return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`; }
+
+async function goToClip(id) {
+  currentDay = clipDay(id);
+  await loadDays();
+  openClip(id);
+}
+
+function buildAsk() {
+  const wrap = $('#ask'); if (!wrap) return;
+  wrap.className = 'ask';
+  wrap.innerHTML = `<form class="ask-form"><input name="q" placeholder="Ask your recordings, e.g. when did the postman come?" autocomplete="off">
+    <select name="days" title="How far back to look"><option value="1">Today and last night</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select>
+    <button class="primary">Ask</button></form><div class="ask-result hidden"></div>`;
+  const form = $('form', wrap); const out = $('.ask-result', wrap);
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const q = form.q.value.trim(); if (!q) return;
+    const btn = $('button', form); const done = busy(btn, 'Looking…');
+    out.classList.remove('hidden'); out.innerHTML = '<div class="muted">Reading through your recordings…</div>';
+    try {
+      const r = await api('/api/ai/ask', {method: 'POST', body: JSON.stringify({question: q, days: form.days.value})});
+      out.innerHTML = `<div class="ask-answer">${esc(r.answer)}</div>
+        ${r.undescribed ? `<div class="small muted">${r.undescribed} of ${r.searched} recordings have no AI description yet, so the answer may miss them.
+          Turn on descriptions in the AI tab.</div>` : ''}
+        <div class="clips ask-clips"></div><button class="link close-ask">Close</button>`;
+      const list = $('.ask-clips', out);
+      for (const c of r.clips) {
+        const t = new Date(c.start);
+        const b = el(`<button class="clip"><div class="thumb" style="background-image:url('/api/clips/${c.id}/thumb')"></div>
+          <div class="meta"><span>${esc(t.toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'}))} · ${esc(camName(c.camera))}</span></div>
+          ${c.summary ? `<div class="ai-summary">${esc(c.summary)}</div>` : ''}</button>`);
+        b.addEventListener('click', () => goToClip(c.id));
+        list.append(b);
+      }
+      $('.close-ask', out).addEventListener('click', () => out.classList.add('hidden'));
+    } catch (e) { out.innerHTML = `<div class="muted">${esc(e.message)}</div>`; }
+    done();
+  });
+}
+buildAsk();
+
+window.describeClip = async function () {
+  const btn = $('#describe'); if (!playing) return;
+  const id = playing; const done = busy(btn, 'Describing…');
+  try {
+    const r = await api('/api/ai/recordings/describe', {method: 'POST', body: JSON.stringify({clip: id})});
+    const c = clipList.find(x => x.id === id); if (c) { c.summary = r.summary; c.tags = r.tags; }
+    if (playing === id) { $('#player-title').textContent += ' · ' + r.summary; btn.classList.add('hidden'); }
+  } catch (e) { toast('Could not describe: ' + e.message); }
+  done();
+};
+$('#describe').addEventListener('click', window.describeClip);

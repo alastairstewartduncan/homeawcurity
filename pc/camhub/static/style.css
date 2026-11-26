@@ -153,3 +153,14 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .run-pic { width: 160px; max-width: 35%; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px; background: #000; flex: none; }
 .run-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .ai-row { flex-wrap: wrap; } .ai-row-tools { width: 100%; justify-content: flex-start; } }
+.ai-summary { padding: 0 10px 10px; font-size: 13px; color: var(--text); line-height: 1.35; }
+.ask { margin-bottom: 14px; }
+.ask-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.ask-form input { flex: 1; min-width: 200px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+.ask-form select { padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
+.ask-result { background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); padding: 14px; margin-top: 10px; }
+.ask-answer { font-size: 15px; margin-bottom: 8px; white-space: pre-wrap; }
+.ask-clips { margin: 10px 0; }
+button.link { background: none; border: none; color: var(--accent); padding: 4px 0; }
+.rec-src select { padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.clip { display: flex; flex-direction: column; justify-content: flex-start; } .clip .thumb, .clip .meta { width: 100%; }

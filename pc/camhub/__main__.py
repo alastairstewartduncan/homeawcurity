@@ -59,6 +59,10 @@ class Hub:
         self.health = HealthMonitor(self)
         self.backup = Backup(config, self.storage, self.events)
         self.detector = PersonDetector()
+        # Smart alerts: strangers and family, your cars, parcels, lines and loitering.
+        from .smart import SmartHub
+        self.smart = SmartHub(self)
+        self.events.enrich = lambda e: self.presence.tag_event(self.smart.tag_event(e))
         self.cameras = {}
         self.started = False
         for c in config.cameras:
@@ -69,6 +73,10 @@ class Hub:
         from .tv import TV
         self.summaries = NightSummaries(self)
         self.tv = TV(self)
+        from .updater import Updater
+        self.updater = Updater(config, os.path.dirname(config.path), hub=self)
+        from .homelinks import HomeLinks
+        self.home_links = HomeLinks(self)
 
     def _make(self, c):
         from .camera import Camera
@@ -83,7 +91,10 @@ class Hub:
 
         ptz = OnvifPtz(on["host"], int(on.get("port") or 8888), on.get("username", ""),
                        on.get("password", ""), on_port_found=save_port) if on.get("host") else None
-        return Camera(c, self.storage, self.events, self.detector, ptz)
+        cam = Camera(c, self.storage, self.events, self.detector, ptz)
+        if getattr(self, "smart", None) is not None:
+            cam.smart = self.smart.watcher(cam)
+        return cam
 
     def start(self):
         self.started = True
@@ -92,6 +103,8 @@ class Hub:
         self.backup.start()
         self.agents.start()
         self.summaries.start()
+        self.updater.start()
+        self.home_links.start()
         for cam in self.cameras.values():
             cam.start()
 
@@ -100,6 +113,8 @@ class Hub:
         self.agents.stop()
         self.summaries.stop()
         self.tv.stop_all()
+        self.updater.stop()
+        self.home_links.stop()
         for cam in self.cameras.values():
             cam.stop()
 

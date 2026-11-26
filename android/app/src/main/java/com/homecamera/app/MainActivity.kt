@@ -80,10 +80,15 @@ class MainActivity : AppCompatActivity() {
         })
 
         if (prefs.serverUrl.isEmpty()) showSetup(null) else showWeb(intent.getStringExtra(MonitorService.EXTRA_CLIP))
+        if (intent.getBooleanExtra(Updater.EXTRA_INSTALL, false)) installUpdate()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.getBooleanExtra(Updater.EXTRA_INSTALL, false)) {
+            installUpdate()
+            return
+        }
         val clip = intent.getStringExtra(MonitorService.EXTRA_CLIP) ?: return
         if (web != null) web?.loadUrl(pageFor(clip)) else showWeb(clip)
     }
@@ -213,6 +218,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        Updater.activityVisible = false
         talk?.stop()
         talk = null
         web?.onPause()
@@ -221,6 +227,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        Updater.activityVisible = true
+        offerUpdate()
         web?.onResume()
         // Coming back from the location settings screen: refresh the Home and away card.
         web?.evaluateJavascript("window.onPhoneLocation && window.onPhoneLocation('{}')", null)
@@ -258,6 +266,51 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Not now", null)
             .show()
+    }
+
+    // ---- updates ------------------------------------------------------------------------
+
+    /** Now and then, on opening the app: if the PC has a newer phone app, offer it. */
+    private fun offerUpdate() {
+        if (prefs.token.isEmpty() || System.currentTimeMillis() - prefs.updateCheckedAt < 6 * 3600_000L) return
+        prefs.updateCheckedAt = System.currentTimeMillis()
+        Thread {
+            val info = try { Updater.newerOnPc(prefs) } catch (_: Exception) { null } ?: return@Thread
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                AlertDialog.Builder(this)
+                    .setTitle("Update Home Camera?")
+                    .setMessage("Version ${info.version} of the phone app is ready (you have ${BuildConfig.VERSION_NAME}). " +
+                        "The app closes for a few seconds while it updates. Your settings are kept.")
+                    .setPositiveButton("Update now") { _, _ -> installUpdate() }
+                    .setNegativeButton("Later", null)
+                    .show()
+            }
+        }.start()
+    }
+
+    /** Installs the PC's newer phone app, first asking Android to allow it if needed. */
+    private fun installUpdate() {
+        if (!Updater.canInstall(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("Allow updates")
+                .setMessage("So Home Camera can update itself, turn on \"Allow from this source\" on the next screen, then come back and press Update again.")
+                .setPositiveButton("Continue") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                }
+                .setNegativeButton("Not now", null)
+                .show()
+            return
+        }
+        Updater.checkAndInstall(this, manual = true) { ok, message -> phoneUpdateResult(ok, message) }
+    }
+
+    private fun phoneUpdateResult(ok: Boolean, message: String) {
+        val json = JSONObject().put("ok", ok).put("message", message).toString()
+        runOnUiThread {
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            web?.evaluateJavascript("window.onPhoneUpdate && window.onPhoneUpdate(${JSONObject.quote(json)})", null)
+        }
     }
 
     // ---- home and away: this phone's location ---------------------------------------
@@ -381,6 +434,21 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun appVersion(): String = BuildConfig.VERSION_NAME
+
+        /** For Settings > Updates: {"version", "code", "can_install", "problem"}. */
+        @JavascriptInterface
+        fun updateInfo(): String = JSONObject()
+            .put("version", BuildConfig.VERSION_NAME)
+            .put("code", BuildConfig.VERSION_CODE)
+            .put("can_install", Updater.canInstall(this@MainActivity))
+            .put("problem", prefs.updateProblem)
+            .toString()
+
+        /** The Update phone app button. The result comes back through window.onPhoneUpdate. */
+        @JavascriptInterface
+        fun updatePhoneApp() {
+            runOnUiThread { installUpdate() }
+        }
 
         /** Hold to talk pressed: record the microphone and send it to the camera. */
         @JavascriptInterface

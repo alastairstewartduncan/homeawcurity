@@ -211,6 +211,48 @@ setting to keep costs down, or run a local model with Ollama for free.
     screen; use the remote's arrows and OK to enlarge one, and Back to return.
   - **From the PC**: open the TV page in Google Chrome, then Chrome's menu > **Cast…**.
 
+## Smart alerts (Smart tab)
+
+Everything here runs on the PC. No pictures are sent anywhere.
+
+- **Family and friends.** Add the people who live here (a few photos each, or name faces from
+  "Faces seen lately"). Turn on *Recognise faces* and "person seen" alerts become **stranger**
+  alerts, with no alert for the people you've named. If no face can be seen, you choose whether
+  it still alerts.
+- **Your cars.** Park your car in view and press *Add car* (add a night picture too). Turn on
+  *Alert when an unknown vehicle stops* to hear about vehicles that stop and aren't yours. Cars
+  driving past don't count. Cars are told apart by colour, so a car just like yours can fool it.
+- **Parcel watch.** Draw the doorstep. After someone visits, a box left there gives a
+  *parcel delivered* alert; if it's then taken, *parcel taken* (an alert when nobody's home,
+  or always if you choose).
+- **Lines.** Draw a line, such as across the drive, and get an alert when someone (or a car)
+  crosses it, either way or only in the arrow's direction.
+- **Loitering areas.** Draw an area, such as around the car, and get an alert when someone stays
+  there longer than the time you pick.
+
+Smart alerts follow home and away like other alerts. Recordings show who and what was seen.
+Lines, areas and the doorstep stay in place on the picture, so keep the camera still (patrol off).
+
+## Automatic updates
+
+The PC app checks the download page every few hours. A newer HomeCameraSetup.exe is downloaded,
+checked against its checksum and installed quietly at night (2 to 5 AM by default, never while a
+camera is recording). Settings and recordings are kept. The PC also keeps the newest phone app,
+and the phone app fetches it from the PC and installs it over itself (the first time Android asks
+you to allow this). Everything is in **Settings > Updates**, including **Check now** and
+**Install now**.
+
+Because this project is private on GitHub, the PC needs a read-only GitHub key to see the
+download page: a fine-grained personal access token for this repository only, with
+**Contents: Read-only**. Paste it into Settings > Updates. (If the project is made public, no key
+is needed.)
+
+The phone app must be signed with the same key in every build, or Android won't install an update
+over it. The build reads that key from the `ANDROID_KEYSTORE_B64` Actions secret (the keystore file,
+base64-encoded, password `homecamera`, alias `homecamera`). Without the secret the phone app still
+builds, but can't update itself. After the secret is added, uninstall the old phone app once and
+install the new one; updates are automatic from then on.
+
 ## 3. Watching from outside the house
 
 Point the app at an address that reaches the PC's port 8080 from the internet (for example a

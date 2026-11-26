@@ -16,6 +16,8 @@ MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 PROTO = os.path.join(MODEL_DIR, "deploy.prototxt")
 WEIGHTS = os.path.join(MODEL_DIR, "mobilenet_iter_73000.caffemodel")
 PERSON_CLASS = 15
+# Other things the same model knows that matter here: bus, car and motorbike.
+VEHICLE_CLASSES = (6, 7, 14)
 
 
 class PersonDetector:
@@ -37,6 +39,12 @@ class PersonDetector:
 
     def detect(self, frame, min_confidence=0.5):
         """Returns a list of (confidence, (x1, y1, x2, y2)) in 0-1 coordinates."""
+        return [(c, box) for kind, c, box in self.detect_objects(frame, min_confidence, min_confidence)
+                if kind == "person"]
+
+    def detect_objects(self, frame, person_confidence=0.5, vehicle_confidence=0.5):
+        """People and vehicles in one go: a list of (kind, confidence, (x1, y1, x2, y2)),
+        kind "person" or "vehicle", coordinates from 0 to 1."""
         if self._net is None:
             return []
         blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 0.007843, (300, 300), 127.5)
@@ -45,11 +53,18 @@ class PersonDetector:
             out = self._net.forward()
         found = []
         for i in range(out.shape[2]):
+            cls = int(out[0, 0, i, 1])
             conf = float(out[0, 0, i, 2])
-            if int(out[0, 0, i, 1]) != PERSON_CLASS or conf < min_confidence:
+            if cls == PERSON_CLASS:
+                kind, need = "person", person_confidence
+            elif cls in VEHICLE_CLASSES:
+                kind, need = "vehicle", vehicle_confidence
+            else:
+                continue
+            if conf < need:
                 continue
             x1, y1, x2, y2 = (float(v) for v in np.clip(out[0, 0, i, 3:7], 0, 1))
             if x2 - x1 <= 0 or y2 - y1 <= 0:
                 continue
-            found.append((conf, (x1, y1, x2, y2)))
+            found.append((kind, conf, (x1, y1, x2, y2)))
         return found

@@ -1,0 +1,45 @@
+/* The Smart tab: family faces, your cars, parcels, lines and loitering. */
+.smart-card h3 { margin-top: 18px; }
+.smart-card .small, .clip-seen { font-size: 12px; }
+.smart-opts { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 6px 0; }
+.smart-card .warn-box { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 12px; }
+.smart-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.smart-add input:not([type]), .rule-row input.nm { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); min-width: 0; }
+.file-btn { display: inline-block; cursor: pointer; border: 1px solid var(--line); background: var(--panel-2);
+  border-radius: 8px; padding: 7px 12px; font-size: 14px; }
+.file-btn:hover { border-color: var(--accent); }
+.known-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.known-row .kname { min-width: 110px; }
+.known-row .thumbs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; align-items: center; }
+.thumb-x { position: relative; display: inline-block; }
+.thumb-x img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; display: block; background: #000; }
+.thumb-x i { position: absolute; left: 3px; bottom: 2px; font-style: normal; font-size: 11px; color: #fff; text-shadow: 0 0 3px #000; }
+.thumb-x button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  font-size: 11px; line-height: 18px; display: none; }
+.thumb-x:hover button, .thumb-x:focus-within button { display: block; }
+@media (hover: none) { .thumb-x button { display: block; } }
+.seen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.seen-tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px;
+  display: flex; flex-direction: column; gap: 6px; }
+.seen-tile img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #000; }
+.seen-tile select { width: 100%; }
+.seen-tile .forget { font-size: 12px; padding: 4px 8px; }
+.smart-tools { margin-bottom: 6px; }
+.smart-editor { margin-bottom: 4px; }
+.rule-list { display: flex; flex-direction: column; gap: 8px; }
+.rule-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rule-row input.nm { width: 150px; }
+.parcel-status p { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.parcel-pic { max-width: 320px; width: 100%; border-radius: 8px; }
+.smart-activity { display: flex; flex-direction: column; }
+.act-row { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.act-row img, .act-row .noimg { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: #000; flex: none; }
+.act-row > div { flex: 1; min-width: 0; }
+.clip-seen { padding: 0 10px 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+@media (max-width: 600px) {
+  .rule-row input.nm { width: 100%; }
+  .act-row img, .act-row .noimg { width: 72px; height: 40px; }
+}
+.seen-grid > p { grid-column: 1 / -1; margin: 0; }
+.parcel-opts { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }

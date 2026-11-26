@@ -126,6 +126,10 @@ def create_app(hub):
     if getattr(hub, "presence", None) and getattr(hub, "health", None):
         from .alerts_api import add_alert_routes
         add_alert_routes(app, hub)
+    # Smart home links: lights, sirens and Alexa routines (homelinks.py).
+    if getattr(hub, "home_links", None):
+        from .homelinks import add_home_link_routes
+        add_home_link_routes(app, hub)
 
     def cam_or_404(cam_id):
         cam = hub.cameras.get(cam_id)
@@ -459,6 +463,9 @@ def create_app(hub):
         return {"retention_days": days, "min_free_gb": free}
 
     backup.add_routes(app, hub)
+    if getattr(hub, "updater", None):
+        from .updater import add_routes as add_update_routes
+        add_update_routes(app, hub)
     from .privacy import add_privacy_routes
     add_privacy_routes(app, hub)
 
@@ -499,6 +506,9 @@ def create_app(hub):
 
     from .ai_api import add_ai_routes
     add_ai_routes(app, hub)
+    if getattr(hub, "smart", None) is not None:
+        from .smart_api import add_smart_routes
+        add_smart_routes(app, hub)
 
     # Night summaries and watching on TV.
     if getattr(hub, "summaries", None):

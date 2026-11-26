@@ -22,7 +22,10 @@ log = logging.getLogger("camhub.presence")
 # A phone that hasn't checked in for this long no longer counts, so a lost or flat phone
 # can't keep alerts switched off. The app checks in every few hours.
 STALE_SECONDS = 12 * 3600
-ALERT_TYPES = ("clip_started", "person")
+# Smart alerts (smart.py) follow home/away too. Those about people carry person: true, so they
+# still alert when "people" alerts are on while someone's home.
+ALERT_TYPES = ("clip_started", "person", "stranger", "vehicle", "loitering", "line_crossed",
+               "parcel_arrived", "parcel_taken")
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 DEFAULT_PRESENCE = {

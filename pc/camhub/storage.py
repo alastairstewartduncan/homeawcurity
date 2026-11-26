@@ -88,6 +88,7 @@ class Storage:
                     "trigger": info.get("trigger", "motion"),
                     "summary": info.get("ai_summary", ""),
                     "tags": info.get("ai_tags", []),
+                    "seen": info.get("seen", []),
                     "size": os.path.getsize(os.path.join(folder, f)),
                 })
         result.sort(key=lambda c: c["start"], reverse=True)

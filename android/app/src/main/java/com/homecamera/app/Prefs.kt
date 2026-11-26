@@ -22,6 +22,17 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("asked_battery", false)
         set(v) = sp.edit().putBoolean("asked_battery", v).apply()
 
+    // ---- app updates -------------------------------------------------------------
+
+    var updateCheckedAt: Long
+        get() = sp.getLong("update_checked_at", 0)
+        set(v) = sp.edit().putLong("update_checked_at", v).apply()
+
+    /** Why the last update didn't install, shown in Settings > Updates. */
+    var updateProblem: String
+        get() = sp.getString("update_problem", "") ?: ""
+        set(v) = sp.edit().putString("update_problem", v).apply()
+
     // ---- home and away -----------------------------------------------------------
 
     /** A random id for this phone, so the PC can tell several phones apart. */

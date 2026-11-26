@@ -156,6 +156,7 @@ class ClipWriter:
         self.started_mono = started_mono or time.monotonic()
         self.trigger = trigger
         self.person = person
+        self.seen = []  # names and things spotted during the clip, e.g. "Stranger", "Parcel"
         self.part = base_path + ".mp4.part"
         if thumb_jpeg is not None:
             with open(base_path + ".jpg", "wb") as f:
@@ -235,6 +236,8 @@ class ClipWriter:
                 }
                 if masked:
                     meta["privacy_masked"] = True
+                if self.seen:
+                    meta["seen"] = list(self.seen)
                 with open(self.base + ".json", "w", encoding="utf-8") as f:
                     json.dump(meta, f)
                 log.info("Saved clip %s (%.0f s)", self.clip_id, duration)
@@ -264,6 +267,10 @@ class ClipWriter:
 
     def mark_person(self):
         self.person = True
+
+    def add_seen(self, label):
+        if label and label not in self.seen:
+            self.seen.append(label)
 
 
 class Camera:
@@ -310,6 +317,7 @@ class Camera:
         self._patrol_i = -1
         self._follow_next = 0.0
         self.last_person = None     # (time, boxes)
+        self.smart = None           # smart.CameraWatcher: faces, cars, parcels, lines and loitering
 
     @property
     def motion(self):
@@ -684,7 +692,7 @@ class Camera:
             bg_key = None
             streak = 0
             last_analyze = 0.0
-            last_person_check = 0.0
+            last_check = 0.0
             failures = 0
             while not self._stop.is_set():
                 t0 = time.monotonic()
@@ -715,7 +723,9 @@ class Camera:
                     last_analyze = now
                     m = self.motion
                     key = (m["sensitivity"],)
-                    if now < self._quiet_until:
+                    turning = now < self._quiet_until
+                    objects = None
+                    if turning:
                         # The camera is turning, so everything "moves". Start afresh afterwards.
                         bg, streak = None, 0
                         self.motion_level = 0.0
@@ -729,11 +739,25 @@ class Camera:
                         self.motion_level = level
                         moving = level >= float(m["min_area_percent"])
                         streak = streak + 1 if moving else 0
-                        if streak >= 2:
+                        moving = streak >= 2
+                        # Look for people (and vehicles) about once a second while things move,
+                        # and also while the smart rules are following someone who stands still.
+                        smart = self.smart
+                        want = moving or (smart is not None and smart.wants_detection(now))
+                        interval = smart.detect_interval() if smart is not None else 1.0
+                        if want and self.detector.available and now - last_check >= interval:
+                            last_check = now
+                            objects = self._detect(frame)
+                        if moving:
                             self._follow(now)
-                            self._on_motion(frame, now, last_person_check)
-                            if self.detector.available and now - last_person_check >= 1.0:
-                                last_person_check = now
+                            people = [(o["conf"], o["box"]) for o in objects or []
+                                      if o["kind"] == "person" and not o["ignored"]]
+                            self._on_motion(frame, now, people)
+                    if self.smart is not None:
+                        try:
+                            self.smart.on_frame(frame, now, streak >= 2, objects, turning)
+                        except Exception:
+                            log.exception("[%s] Smart detection failed", self.id)
                 if is_file:
                     delay = 1.0 / src_fps - (time.monotonic() - t0)
                     if delay > 0:
@@ -798,13 +822,55 @@ class Camera:
         found = self.detector.detect(frame, float(self.motion.get("person_confidence", 0.5)))
         return [d for d in found if not self._in_ignore_zone(d[1])]
 
-    def _on_motion(self, frame, now, last_person_check):
+    def _detect(self, frame):
+        """People and vehicles in the picture: [{"kind", "conf", "box", "ignored"}].
+        "ignored" means standing in an ignore zone."""
+        conf = float(self.motion.get("person_confidence", 0.5))
+        out = []
+        for kind, c, box in self.detector.detect_objects(frame, conf, max(0.4, conf)):
+            out.append({"kind": kind, "conf": c, "box": box, "ignored": self._in_ignore_zone(box)})
+        return out
+
+    def add_seen(self, label):
+        """Notes on the recording in progress who or what was seen (shown with the clip)."""
+        with self._lock:
+            if self.clip is not None:
+                self.clip.add_seen(label)
+
+    def hires_frame(self, timeout=10):
+        """A full quality picture from the main stream, made from the last second or two held
+        in memory. Used to recognise faces, which are too small in the live picture."""
+        with self._lock:
+            if not self.stream_online or not self.preroll.gops:
+                return None
+            gops = list(self.preroll.gops)
+            # The newest group may have only just begun: then take the one before it too.
+            if len(gops) > 1 and time.monotonic() - gops[-1][0] < 0.6:
+                gops = gops[-2:]
+            else:
+                gops = gops[-1:]
+            data = self.ts.headers() + b"".join(bytes(g[1]) for g in gops)
+        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "mpegts", "-i", "pipe:0", "-an",
+               "-vf", "select='not(mod(n\\,5))'", "-fps_mode", "vfr",
+               "-c:v", "mjpeg", "-q:v", "3", "-f", "image2pipe", "pipe:1"]
+        try:
+            out = subprocess.run(cmd, input=data, capture_output=True, timeout=timeout,
+                                 creationflags=NO_WINDOW).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        start = out.rfind(b"\xff\xd8\xff")
+        if start < 0:
+            return None
+        img = cv2.imdecode(np.frombuffer(out[start:], np.uint8), cv2.IMREAD_COLOR)
+        if img is None or img.size == 0:
+            return None
+        return privacy.apply_to_frame(img, privacy.settings_of(self.cfg))
+
+    def _on_motion(self, frame, now, people):
         m = self.motion
         with self._lock:
             if self.clip is not None:
                 self.last_activity = now
-        check_person = self.detector.available and now - last_person_check >= 1.0
-        people = self._find_people(frame) if check_person else []
         if people:
             self.last_person = (now, people)
         with self._lock:

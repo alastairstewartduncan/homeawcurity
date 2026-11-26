@@ -110,6 +110,7 @@ class MonitorService : Service() {
                 if (conn.responseCode != 200) throw IllegalStateException("HTTP ${conn.responseCode}")
                 backoff = 2_000L
                 reachedPc()
+                Updater.backgroundCheck(applicationContext)
                 BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
                     val data = StringBuilder()
                     while (running) {

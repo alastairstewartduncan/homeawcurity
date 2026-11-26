@@ -461,6 +461,9 @@ def create_app(hub):
         return {"retention_days": days, "min_free_gb": free}
 
     backup.add_routes(app, hub)
+    if getattr(hub, "updater", None):
+        from .updater import add_routes as add_update_routes
+        add_update_routes(app, hub)
     from .privacy import add_privacy_routes
     add_privacy_routes(app, hub)
 

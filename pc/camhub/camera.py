@@ -280,6 +280,11 @@ class Camera:
         self._mask = None
         self._mask_key = None
         self.motion_level = 0.0
+        self.motion_x = 0.5         # where across the picture the movement is (0 left, 1 right)
+        self._quiet_until = 0.0     # ignore motion until then: the camera itself is turning
+        self._patrol_pause_until = 0.0
+        self._patrol_i = -1
+        self._follow_next = 0.0
         self.last_person = None     # (time, boxes)
 
     @property
@@ -295,6 +300,64 @@ class Camera:
         self.talker.start()
         if self.ptz is not None:
             threading.Thread(target=self._ptz_loop, name=f"ptz-{self.id}", daemon=True).start()
+            threading.Thread(target=self._patrol_loop, name=f"patrol-{self.id}", daemon=True).start()
+
+    @property
+    def ptz_cfg(self):
+        return self.cfg.setdefault("ptz", {"presets": [], "patrol": {"enabled": False, "dwell_seconds": 30},
+                                           "follow_motion": False})
+
+    def ptz_moved(self, manual=True, seconds=6):
+        """Call whenever the camera turns, so turning doesn't count as motion."""
+        now = time.monotonic()
+        self._quiet_until = max(self._quiet_until, now + seconds)
+        if manual:
+            # Someone is steering by hand: don't let the patrol pull the camera away.
+            self._patrol_pause_until = now + 120
+
+    def _patrol_loop(self):
+        last_move = 0.0
+        while not self._stop.wait(1):
+            p = self.ptz_cfg
+            patrol = p.get("patrol") or {}
+            presets = p.get("presets") or []
+            if not patrol.get("enabled") or len(presets) < 2 or not (self.ptz and self.ptz.available):
+                continue
+            now = time.monotonic()
+            # Stay put while recording, so the camera keeps watching what set it off.
+            if self.clip is not None or now < self._patrol_pause_until:
+                continue
+            dwell = max(10, min(3600, int(patrol.get("dwell_seconds") or 30)))
+            if now - last_move < dwell:
+                continue
+            self._patrol_i = (self._patrol_i + 1) % len(presets)
+            target = presets[self._patrol_i]
+            try:
+                self.ptz.goto_preset(target["token"])
+                self.ptz_moved(manual=False, seconds=8)
+                log.info("[%s] Patrol: turning to %s", self.id, target.get("name"))
+            except Exception as e:
+                log.warning("[%s] Patrol couldn't turn to %s: %s", self.id, target.get("name"), e)
+            last_move = now
+
+    def _follow(self, now):
+        """Turns a little towards movement at the edge of the picture."""
+        if not self.ptz_cfg.get("follow_motion") or not (self.ptz and self.ptz.available):
+            return
+        if now < self._follow_next or not (self.motion_x < 0.2 or self.motion_x > 0.8):
+            return
+        self._follow_next = now + 8
+        self._patrol_pause_until = now + 60
+        self.ptz_moved(manual=False, seconds=4)
+        direction = -0.6 if self.motion_x < 0.5 else 0.6
+
+        def turn():
+            try:
+                self.ptz.nudge(direction)
+            except Exception as e:
+                log.warning("[%s] Couldn't turn towards the movement: %s", self.id, e)
+
+        threading.Thread(target=turn, daemon=True).start()
 
     def _ptz_loop(self):
         # The camera may be asleep or rebooting when we start, so keep trying until pan and
@@ -333,6 +396,10 @@ class Camera:
                 "ptz_error": self.ptz.error if self.ptz else "Not configured",
                 "ptz_zoom": bool(self.ptz and self.ptz.available and self.ptz.zoom),
                 "talk": bool(self.talker.supported),
+                "presets": [{"name": p.get("name"), "token": p.get("token")} for p in self.ptz_cfg.get("presets", [])],
+                "patrol": bool((self.ptz_cfg.get("patrol") or {}).get("enabled")),
+                "patrol_seconds": int((self.ptz_cfg.get("patrol") or {}).get("dwell_seconds") or 30),
+                "follow_motion": bool(self.ptz_cfg.get("follow_motion")),
                 "person_detection": self.detector.available,
             }
 
@@ -621,19 +688,25 @@ class Camera:
                     last_analyze = now
                     m = self.motion
                     key = (m["sensitivity"],)
-                    if bg is None or key != bg_key:
-                        var = float(np.interp(m["sensitivity"], [1, 10], [60, 8]))
-                        bg = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=var, detectShadows=False)
-                        bg_key = key
-                        streak = 0
-                    level = self._motion_level(bg, frame)
-                    self.motion_level = level
-                    moving = level >= float(m["min_area_percent"])
-                    streak = streak + 1 if moving else 0
-                    if streak >= 2:
-                        self._on_motion(frame, now, last_person_check)
-                        if self.detector.available and now - last_person_check >= 1.0:
-                            last_person_check = now
+                    if now < self._quiet_until:
+                        # The camera is turning, so everything "moves". Start afresh afterwards.
+                        bg, streak = None, 0
+                        self.motion_level = 0.0
+                    else:
+                        if bg is None or key != bg_key:
+                            var = float(np.interp(m["sensitivity"], [1, 10], [60, 8]))
+                            bg = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=var, detectShadows=False)
+                            bg_key = key
+                            streak = 0
+                        level = self._motion_level(bg, frame)
+                        self.motion_level = level
+                        moving = level >= float(m["min_area_percent"])
+                        streak = streak + 1 if moving else 0
+                        if streak >= 2:
+                            self._follow(now)
+                            self._on_motion(frame, now, last_person_check)
+                            if self.detector.available and now - last_person_check >= 1.0:
+                                last_person_check = now
                 if is_file:
                     delay = 1.0 / src_fps - (time.monotonic() - t0)
                     if delay > 0:
@@ -679,6 +752,9 @@ class Camera:
         fg = cv2.bitwise_and(fg, mask)
         fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         area = max(1, int(np.count_nonzero(mask)))
+        cols = np.count_nonzero(fg, axis=0)
+        if cols.sum():
+            self.motion_x = float((cols * np.arange(len(cols))).sum() / cols.sum() / max(1, len(cols) - 1))
         return 100.0 * np.count_nonzero(fg) / area
 
     def _in_ignore_zone(self, box):

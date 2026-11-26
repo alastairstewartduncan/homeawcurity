@@ -96,6 +96,7 @@ function buildLive() {
     setupZoom(el, c.id);
     setupListen(el, c.id);
     setupTalk(el, c.id);
+    setupPositions(el, c.id);
     wrap.appendChild(el);
   }
   updateLive();
@@ -115,6 +116,8 @@ function updateLive() {
     $('.ptz-speed', el).classList.toggle('hidden', !c.ptz);
     $('.lens', el).classList.toggle('hidden', !c.ptz_zoom);
     $('.talk', el).classList.toggle('hidden', !c.talk);
+    $('.positions', el).classList.toggle('hidden', !c.ptz);
+    if (c.ptz && el.renderPositions) el.renderPositions(c);
   }
   const s = status.storage;
   if (s) $('#storage').textContent = `Recordings ${fmtBytes(s.recordings_bytes)} · ${fmtBytes(s.disk_free)} free`;
@@ -212,6 +215,76 @@ function setupZoom(el, camId) {
   wrap.addEventListener('pointerup', end);
   wrap.addEventListener('pointercancel', end);
   window.addEventListener('resize', apply);
+}
+
+// ---------- saved positions and patrol ----------
+function setupPositions(el, camId) {
+  const box = $('.positions', el), chips = $('.chips', box), form = $('.add-form', box);
+  let shown = '';
+  const call = (path, opts) => api(`/api/cameras/${camId}${path}`, opts);
+  const render = (c) => {
+    const key = JSON.stringify([c.presets, c.patrol, c.patrol_seconds, c.follow_motion]);
+    if (key === shown) return;
+    shown = key;
+    chips.innerHTML = '';
+    for (const p of c.presets || []) {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.textContent = p.name;
+      const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕';
+      b.appendChild(x);
+      b.addEventListener('click', async () => {
+        if (box.classList.contains('editing')) {
+          if (!confirm(`Forget the position "${p.name}"?`)) return;
+          await call(`/presets/${encodeURIComponent(p.token)}`, {method: 'DELETE'}).catch(e => toast(e.message));
+        } else {
+          await call(`/presets/${encodeURIComponent(p.token)}/go`, {method: 'POST'}).catch(e => toast('Position: ' + e.message));
+        }
+        refreshStatus().catch(() => {});
+      });
+      chips.appendChild(b);
+    }
+    const n = (c.presets || []).length;
+    $('.edit-pos', box).classList.toggle('hidden', !n);
+    if (!n) box.classList.remove('editing');
+    $('.patrol', box).checked = !!c.patrol;
+    $('.patrol', box).disabled = n < 2;
+    $('.patrol', box).parentElement.title = n < 2 ? 'Save at least two positions to patrol between them.' : $('.patrol', box).parentElement.title;
+    const secs = $('.patrol-secs', box);
+    if (![...secs.options].some(o => o.value === String(c.patrol_seconds))) {
+      secs.add(new Option(`${c.patrol_seconds} s`, c.patrol_seconds));
+    }
+    secs.value = String(c.patrol_seconds || 30);
+    $('.follow', box).checked = !!c.follow_motion;
+  };
+  el.renderPositions = render;
+  $('.add-pos', box).addEventListener('click', () => {
+    form.classList.remove('hidden'); $('.add-pos', box).classList.add('hidden'); $('.pos-name', box).focus();
+  });
+  const close = () => { form.classList.add('hidden'); $('.add-pos', box).classList.remove('hidden'); $('.pos-name', box).value = ''; };
+  $('.cancel-pos', box).addEventListener('click', close);
+  const save = async () => {
+    const name = $('.pos-name', box).value.trim();
+    if (!name) { $('.pos-name', box).focus(); return; }
+    try {
+      await call('/presets', {method: 'POST', body: JSON.stringify({name})});
+      toast(`Saved "${name}". Tap it to turn the camera back there.`);
+      close();
+      shown = '';
+      await refreshStatus();
+    } catch (e) { toast('Save position: ' + e.message); }
+  };
+  $('.save-pos', box).addEventListener('click', save);
+  $('.pos-name', box).addEventListener('keydown', ev => { if (ev.key === 'Enter') save(); if (ev.key === 'Escape') close(); });
+  $('.edit-pos', box).addEventListener('click', () => {
+    box.classList.toggle('editing');
+    $('.edit-pos', box).textContent = box.classList.contains('editing') ? 'Done' : 'Edit';
+  });
+  const patrol = (body) => call('/patrol', {method: 'PUT', body: JSON.stringify(body)})
+    .then(() => { shown = ''; return refreshStatus(); }).catch(e => toast(e.message));
+  $('.patrol', box).addEventListener('change', ev => patrol({enabled: ev.target.checked}));
+  $('.patrol-secs', box).addEventListener('change', ev => patrol({dwell_seconds: parseInt(ev.target.value, 10)}));
+  $('.follow', box).addEventListener('change', ev => patrol({follow_motion: ev.target.checked}));
 }
 
 // ---------- listen ----------

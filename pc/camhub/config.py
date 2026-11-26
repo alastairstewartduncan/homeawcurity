@@ -45,6 +45,12 @@ DEFAULT_CAMERA = {
     "sub_url": "",
     "onvif": {"host": "", "port": 8888, "username": "admin", "password": ""},
     "motion": DEFAULT_MOTION,
+    # Saved positions ({"name", "token"}), patrol between them, and turning towards movement.
+    "ptz": {
+        "presets": [],
+        "patrol": {"enabled": False, "dwell_seconds": 30},
+        "follow_motion": False,
+    },
 }
 
 

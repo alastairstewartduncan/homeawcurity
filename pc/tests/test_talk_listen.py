@@ -281,3 +281,77 @@ def test_ptz_finds_the_right_port_and_zoom(monkeypatch):
         assert calls[-1] == "GotoHomePosition"
     finally:
         srv.shutdown()
+
+
+def test_presets_use_free_numbered_slots(monkeypatch):
+    """The WHC905 has 255 fixed slots: each new position must go in one we aren't using."""
+    from camhub import ptz
+
+    p = ptz.OnvifPtz("cam", 8888, "admin", "pw")
+    p.profile, p.ptz_url = "PROFILE_000", "http://cam/ptz"
+    sent = []
+    slots = "".join(f'<tptz:Preset token="PRESET_{i}"><tt:Name>PRESET_{i}</tt:Name></tptz:Preset>' for i in range(1, 256))
+
+    def fake_call(url, body, auth=True, timeout=5):
+        sent.append(body)
+        if "GetPresets" in body:
+            return f"<s:Body>{slots}</s:Body>"
+        if "SetPreset" in body:
+            tok = re.search(r"<tptz:PresetToken>(.*?)<", body)
+            return f"<tptz:PresetToken>{tok.group(1) if tok else 'NEW'}</tptz:PresetToken>"
+        return "<ok/>"
+
+    monkeypatch.setattr(p, "_call", fake_call)
+    assert p.save_preset("Gate", taken=set()) == "PRESET_1"
+    assert p.save_preset("Door", taken={"PRESET_1"}) == "PRESET_2"
+    assert "<tptz:PresetName>Door</tptz:PresetName>" in sent[-1]
+    p.goto_preset("PRESET_2")
+    assert "GotoPreset" in sent[-1] and "PRESET_2" in sent[-1]
+
+
+def test_presets_on_cameras_that_make_new_slots(monkeypatch):
+    from camhub import ptz
+
+    p = ptz.OnvifPtz("cam", 8888, "admin", "pw")
+    p.profile, p.ptz_url = "P", "http://cam/ptz"
+
+    def fake_call(url, body, auth=True, timeout=5):
+        if "GetPresets" in body:
+            return '<tptz:Preset token="1"><tt:Name>Theirs</tt:Name></tptz:Preset>'
+        if "SetPreset" in body:
+            assert "<tptz:PresetToken>" not in body     # never overwrite the camera app's own position
+            return "<tptz:PresetToken>7</tptz:PresetToken>"
+        return "<ok/>"
+
+    monkeypatch.setattr(p, "_call", fake_call)
+    assert p.save_preset("Gate") == "7"
+
+
+def test_patrol_moves_between_positions_and_waits_while_recording():
+    from types import SimpleNamespace
+
+    from camhub.camera import Camera
+
+    moves = []
+    fake_ptz = SimpleNamespace(available=True, goto_preset=moves.append)
+    cam = Camera.__new__(Camera)
+    cam.id = "test"
+    cam.cfg = {"ptz": {"presets": [{"name": "Gate", "token": "A"}, {"name": "Door", "token": "B"}],
+                       "patrol": {"enabled": True, "dwell_seconds": 10}, "follow_motion": False}}
+    cam.ptz = fake_ptz
+    cam.clip = None
+    cam._stop = threading.Event()
+    cam._quiet_until = cam._patrol_pause_until = 0.0
+    cam._patrol_i = -1
+    t = threading.Thread(target=cam._patrol_loop, daemon=True)
+    t.start()
+    try:
+        deadline = time.time() + 3
+        while not moves and time.time() < deadline:
+            time.sleep(0.1)
+        assert moves == ["A"]
+        assert cam._quiet_until > time.monotonic()     # motion is ignored while it turns
+        cam.ptz_moved(manual=True)                       # steering by hand pauses the patrol
+        assert cam._patrol_pause_until > time.monotonic() + 100
+    finally:
+        cam._stop.set()

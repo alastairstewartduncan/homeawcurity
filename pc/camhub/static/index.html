@@ -87,6 +87,30 @@
       <button class="snap">Save picture</button>
       <button class="full">Full screen</button>
     </div>
+    <div class="positions hidden">
+      <div class="pos-row">
+        <span class="pos-label">Positions</span>
+        <span class="chips"></span>
+        <button class="add-pos" title="Remember where the camera is pointing now">＋ Save position</button>
+        <span class="add-form hidden">
+          <input class="pos-name" placeholder="Name, e.g. Gate" maxlength="30">
+          <button class="primary save-pos">Save</button><button class="cancel-pos">Cancel</button>
+        </span>
+        <button class="edit-pos hidden">Edit</button>
+      </div>
+      <div class="pos-row">
+        <label class="check" title="Turn between the saved positions. Pauses while recording and for 2 minutes after you steer by hand.">
+          <input type="checkbox" class="patrol"> Patrol between positions, every
+          <select class="patrol-secs">
+            <option value="15">15 s</option><option value="30">30 s</option><option value="60">1 min</option>
+            <option value="300">5 min</option><option value="900">15 min</option>
+          </select>
+        </label>
+        <label class="check" title="When something moves near the edge of the picture, turn a little towards it.">
+          <input type="checkbox" class="follow"> Turn towards movement
+        </label>
+      </div>
+    </div>
   </div>
 </template>
 

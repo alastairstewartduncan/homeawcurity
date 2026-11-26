@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -179,6 +180,64 @@ class OnvifPtz:
         )
         with self._lock:
             self._call(self.ptz_url, body)
+
+    def presets(self):
+        """The camera's own list of positions, as [(token, name)]."""
+        with self._lock:
+            xml = self._call(self.ptz_url, f"<tptz:GetPresets><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken></tptz:GetPresets>")
+        return re.findall(r'<(?:\w+:)?Preset[^>]*token="([^"]+)"[^>]*>\s*(?:<(?:\w+:)?Name>(.*?)</)?', xml)
+
+    def save_preset(self, name, taken=()):
+        """Saves where the camera points now under `name`. Returns the camera's token for it.
+
+        Some cameras make a new slot when asked; others (like the WHC905) have fixed numbered
+        slots, and we use the first one we haven't used already.
+        """
+        def set_preset(token=None, named=True):
+            body = (f"<tptz:SetPreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                    + (f"<tptz:PresetName>{_esc(name)}</tptz:PresetName>" if named else "")
+                    + (f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken>" if token else "")
+                    + "</tptz:SetPreset>")
+            with self._lock:
+                xml = self._call(self.ptz_url, body)
+            return _find(xml, "PresetToken") or token
+
+        slots = self.presets()
+        # Lots of slots means fixed numbered ones (the WHC905 lists 255); otherwise the camera
+        # makes a new one for each save, and we mustn't overwrite positions saved in its own app.
+        if len(slots) < 32:
+            try:
+                token = set_preset()
+                if token and token not in taken:
+                    return token
+            except RuntimeError as e:
+                log.info("Camera wouldn't make a new position slot (%s); using a numbered one", e)
+        for token, _ in (slots if len(slots) >= 32 else []):
+            if token not in taken:
+                try:
+                    return set_preset(token)
+                except RuntimeError:
+                    # Some cameras won't rename a numbered slot; save the position without a name.
+                    return set_preset(token, named=False)
+        raise RuntimeError("The camera has no free position slots")
+
+    def goto_preset(self, token):
+        body = (f"<tptz:GotoPreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken></tptz:GotoPreset>")
+        with self._lock:
+            self._call(self.ptz_url, body)
+
+    def remove_preset(self, token):
+        body = (f"<tptz:RemovePreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken></tptz:RemovePreset>")
+        with self._lock:
+            self._call(self.ptz_url, body)
+
+    def nudge(self, pan, seconds=0.6):
+        """Turns a little to one side, for following movement."""
+        self.move(pan, 0)
+        time.sleep(seconds)
+        self.stop()
 
     def home(self):
         body = f"<tptz:GotoHomePosition><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken></tptz:GotoHomePosition>"

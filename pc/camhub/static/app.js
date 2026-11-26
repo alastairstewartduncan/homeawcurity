@@ -46,8 +46,9 @@ function showTab(name) {
   $$('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $$('main > section').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   // Only stream live video while the Live tab is open, to save bandwidth on phones.
+  const grid = window.gridActive && window.gridActive();
   $$('#live img').forEach(img => {
-    if (name === 'live') img.src = img.dataset.src + '?t=' + Date.now();
+    if (name === 'live' && !grid) img.src = img.dataset.src + '?t=' + Date.now();
     else img.removeAttribute('src');
   });
   if (name !== 'live') $$('#live .cam').forEach(c => c.stopListening && c.stopListening());
@@ -77,7 +78,7 @@ function buildLive() {
     $('.name', el).textContent = c.name;
     const img = $('img', el);
     img.dataset.src = `/api/cameras/${c.id}/live.mjpg`;
-    img.src = img.dataset.src;
+    if (!(window.gridActive && window.gridActive())) img.src = img.dataset.src;
     img.addEventListener('error', () => {
       $('.msg', el).classList.remove('hidden');
       setTimeout(() => { if (img.getAttribute('src')) img.src = img.dataset.src + '?t=' + Date.now(); }, 3000);
@@ -528,6 +529,8 @@ async function loadSettings() {
   if (window.alertCards) for (const card of await window.alertCards()) wrap.appendChild(card);
   wrap.appendChild(storageCard());
   if (window.backupCard) wrap.appendChild(await backupCard());
+  if (window.summaryCard) wrap.appendChild(await window.summaryCard());
+  if (window.tvCard) wrap.appendChild(window.tvCard());
   wrap.appendChild(aboutCard());
 }
 
@@ -768,6 +771,7 @@ function listen() {
     }
     refreshStatus();
     if (window.onAlertEvent) window.onAlertEvent(e);
+    if (window.onSummaryEvent) window.onSummaryEvent(e);
     if (e.type === 'clip_saved' && !$('#tab-recordings').classList.contains('hidden') && !playing) loadDays();
   };
 }

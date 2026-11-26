@@ -164,6 +164,10 @@ class MonitorService : Service() {
             handleDigest(prefs, e)
             return
         }
+        if (type == "night_summary") {
+            handleNightSummary(prefs, e)
+            return
+        }
         if (type != "clip_started" && type != "person") return
         // Home and away: the PC says whether to alert (someone's home, so it's held back).
         if (e.has("alert") && !e.optBoolean("alert", true)) return
@@ -332,6 +336,28 @@ class MonitorService : Service() {
         notify(ID_DIGEST, n.build())
     }
 
+    /** Each morning: the night's recordings as one short video. Tap to watch it. */
+    private fun handleNightSummary(prefs: Prefs, e: JSONObject) {
+        val date = e.optString("date")
+        val count = e.optInt("count", 0)
+        val picture = if (count > 0) fetchPicture(prefs, "/api/summaries/$date/picture.jpg") else null
+        val n = NotificationCompat.Builder(this, CHANNEL_SUMMARY)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle(if (count > 0) "Your night in one short video" else "Quiet night")
+            .setContentText(e.optString("text"))
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setContentIntent(openApp(this, "summary=$date"))
+        if (picture != null) {
+            n.setLargeIcon(picture)
+            n.setStyle(NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?)
+                .setSummaryText(e.optString("text")))
+        } else {
+            n.setStyle(NotificationCompat.BigTextStyle().bigText(e.optString("text")))
+        }
+        notify(ID_SUMMARY, n.build())
+    }
+
     private fun fetchThumb(prefs: Prefs, clip: String): Bitmap? {
         if (clip.isEmpty()) return null
         return fetchPicture(prefs, "/api/clips/$clip/thumb")
@@ -385,6 +411,8 @@ class MonitorService : Service() {
         const val ID_SERVICE = 1
         const val ID_SIGNED_OUT = 2
         const val ID_DIGEST = 3
+        const val ID_SUMMARY = 5
+        const val CHANNEL_SUMMARY = "summary"
         const val ACTION_STOP = "stop"
         const val EXTRA_CLIP = "clip"
 
@@ -417,6 +445,10 @@ class MonitorService : Service() {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_AI, "AI agent alerts", NotificationManager.IMPORTANCE_HIGH)
                     .apply { description = "One of your AI agents spotted something you asked to hear about" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_SUMMARY, "Night summary", NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = "Each morning, the night's recordings as one short video" }
             )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_SERVICE, "Background connection", NotificationManager.IMPORTANCE_MIN)

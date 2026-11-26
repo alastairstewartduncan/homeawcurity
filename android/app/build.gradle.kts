@@ -42,4 +42,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
     // Home and away: the home area (geofence) and finding where the phone is.
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    // Watch on TV: Chromecast and Google TV.
+    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    implementation("androidx.mediarouter:mediarouter:1.7.0")
 }

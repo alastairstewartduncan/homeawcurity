@@ -43,11 +43,13 @@ def create_app(hub):
     @app.middleware("http")
     async def require_login(request: Request, call_next):
         path = request.url.path
-        public = path in ("/login", "/api/login", "/favicon.svg", "/manifest.json") or path.startswith("/static/")
+        # /tv/<key>/... is for a Chromecast, which can't sign in: it checks its own key instead.
+        public = (path in ("/login", "/api/login", "/favicon.svg", "/manifest.json") or path.startswith("/static/")
+                  or path.startswith("/tv/"))
         if not public and not authed(request):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "login required"}, status_code=401)
-            return RedirectResponse("/login")
+            return RedirectResponse("/login?next=/tv" if path == "/tv" else "/login")
         response = await call_next(request)
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -497,6 +499,14 @@ def create_app(hub):
 
     from .ai_api import add_ai_routes
     add_ai_routes(app, hub)
+
+    # Night summaries and watching on TV.
+    if getattr(hub, "summaries", None):
+        from .summaries import add_routes as add_summary_routes
+        add_summary_routes(app, hub)
+    if getattr(hub, "tv", None):
+        from .tv import add_routes as add_tv_routes
+        add_tv_routes(app, hub)
 
     # ---- live events (used for phone notifications) ---------------------------
 

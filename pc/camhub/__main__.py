@@ -65,6 +65,10 @@ class Hub:
             self.cameras[c["id"]] = self._make(c)
         from .agents import AgentRunner
         self.agents = AgentRunner(self)
+        from .summaries import NightSummaries
+        from .tv import TV
+        self.summaries = NightSummaries(self)
+        self.tv = TV(self)
 
     def _make(self, c):
         from .camera import Camera
@@ -87,12 +91,15 @@ class Hub:
         self.storage.start_cleanup_thread()
         self.backup.start()
         self.agents.start()
+        self.summaries.start()
         for cam in self.cameras.values():
             cam.start()
 
     def stop(self):
         self.health.stop()
         self.agents.stop()
+        self.summaries.stop()
+        self.tv.stop_all()
         for cam in self.cameras.values():
             cam.stop()
 

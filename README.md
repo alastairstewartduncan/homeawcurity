@@ -11,6 +11,11 @@ Windows recorder and an Android app.
   as marks with gaps between them (nothing is recorded when nothing moves); a gap jumps to the next
   recording, and playback carries on through the day's clips. Zoom to 6 or 1 hours, or step to
   earlier days.
+- **Night summary** each morning: one short sped-up video of everything recorded overnight, from
+  every camera, with the time on the picture. Your phone gets a notification when it's ready.
+- **Camera grid** for two or more cameras, with one combined timeline: drag back and every camera
+  plays from that moment together.
+- **Watch on TV**: show the cameras live on a Chromecast, Google TV or a smart TV's web browser.
 - **Privacy areas**: cover a neighbour's window or the street with blur or black. They are hidden in
   the live picture, saved pictures, phone alerts and new recordings (Settings > Privacy).
 - **Live view and recordings** on the PC (in its own window) and on the phone, by day, with
@@ -180,6 +185,31 @@ The **AI** tab lets you add your own AI helpers that look at the camera picture 
 
 Each look is one AI request, so a cloud AI is charged per look. Use the quiet time and the "Every few minutes"
 setting to keep costs down, or run a local model with Ollama for free.
+
+## Night summaries, camera grid and TV
+
+- **Night summary**: at 07:30 each morning the PC makes one video of last night's recordings (21:00 to
+  07:00), played back to back and sped up so it lasts about a minute. Busier nights play faster (4× to
+  120×). Find it at the top of the **Recordings** tab; under the video, tap a time to jump to it, or
+  double-click (long-press on the phone) to open the full recording. Change the hours, length and how
+  long to keep them in **Settings > Night summary**, or press **Make last night's now**. Summaries are
+  kept in a `_summaries` folder inside the recordings folder (30 days by default).
+- **Camera grid**: with two or more cameras, the **Live** tab has **Each camera | Grid**. The grid
+  shows every camera at once, with one timeline below that has a row (and colour) per camera. Drag or
+  tap it to go back: every camera plays its recording from that moment together, at 1×, 2× or 4×, and
+  times when no camera recorded anything are skipped. A camera that recorded nothing at that moment
+  says so. **Back to live** returns to the live pictures. Works the same in the phone app.
+- **Watch on TV**:
+  - **Chromecast or Google TV**: in the phone app, press **📺 TV** on the Live tab and choose a camera
+    (or all cameras together), then your TV. Night summaries have a **Play on TV** button. The TV
+    fetches the video straight from the PC, so the phone, TV and PC need to be on the same home
+    network. Live view on the TV is a few seconds behind. While casting, the PC turns the live
+    picture into a TV-friendly video in memory (nothing is written to disk) and stops when the TV
+    stops watching. TV links expire after 12 hours unused.
+  - **Smart TV with a web browser** (Samsung, LG, Fire TV and others): open
+    `http://<PC address>:8080/tv` in the TV's browser and sign in once. Every camera shows full
+    screen; use the remote's arrows and OK to enlarge one, and Back to return.
+  - **From the PC**: open the TV page in Google Chrome, then Chrome's menu > **Cast…**.
 
 ## 3. Watching from outside the house
 

@@ -40,7 +40,8 @@ document.getElementById('f').addEventListener('submit', async (ev) => {
   if (!r.ok) { e.textContent = j.error || 'Sign in failed'; return; }
   // Inside the Android app, hand the token over so it can send notifications.
   if (window.HomeCamera && window.HomeCamera.setToken) window.HomeCamera.setToken(j.token);
-  location.href = '/';
+  // Only the TV page is allowed as somewhere to go back to.
+  location.href = new URLSearchParams(location.search).get('next') === '/tv' ? '/tv' : '/';
 });
 </script>
 </body>

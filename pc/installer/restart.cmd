@@ -1,7 +1,7 @@
 @echo off
-rem Restarts Home Camera, for example after changing config.json.
+rem Restarts A.S.D Home Security, for example after changing config.json.
 net session >nul 2>&1 || (powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" & exit /b)
-echo Restarting Home Camera...
+echo Restarting A.S.D Home Security...
 schtasks /End /TN "Home Camera" >nul 2>&1
 taskkill /F /T /IM camhub.exe >nul 2>&1
 timeout /t 2 /nobreak >nul

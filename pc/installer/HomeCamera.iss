@@ -1,4 +1,4 @@
-; Inno Setup script for the Home Camera Windows installer.
+; Inno Setup script for the A.S.D Home Security Windows installer.
 ; Built by GitHub Actions (see .github/workflows/build.yml). To build by hand on Windows:
 ;   1. From the pc folder: pyinstaller --noconfirm installer/camhub.spec
 ;   2. Put ffmpeg.exe and ffprobe.exe in pc\installer\ffmpeg\
@@ -10,7 +10,7 @@
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
-#define AppName "Home Camera"
+#define AppName "A.S.D Home Security"
 #define Port "8080"
 
 [Setup]
@@ -18,8 +18,11 @@ AppId={{6B2E7C55-3E0B-4B83-9C1D-6F3B0E4A9D21}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-AppPublisher=Home Camera
-DefaultDirName={autopf}\{#AppName}
+AppPublisher=A.S.D Home Security
+; The install folder, scheduled task names and ProgramData\HomeCamera keep the old
+; "Home Camera" names on purpose, so upgrades and automatic updates find the existing install.
+DefaultDirName={autopf}\Home Camera
+UsePreviousGroup=no
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -41,7 +44,7 @@ RestartApplications=no
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Add a Home Camera icon to the desktop"; GroupDescription: "Shortcuts:"
+Name: "desktopicon"; Description: "Add an A.S.D Home Security icon to the desktop"; GroupDescription: "Shortcuts:"
 
 [Files]
 Source: "..\dist\camhub\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -53,21 +56,26 @@ Source: "find-camera.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "change-password.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "homecamera.ico"; DestDir: "{app}"; Flags: ignoreversion
 
+[InstallDelete]
+; Start menu folder and desktop icon from before the rename to A.S.D Home Security.
+Type: filesandordirs; Name: "{commonprograms}\Home Camera"
+Type: files; Name: "{commondesktop}\Home Camera.lnk"
+
 [Dirs]
 Name: "{commonappdata}\HomeCamera"
 
 [Icons]
-Name: "{group}\Home Camera"; Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; IconFilename: "{app}\homecamera.ico"
+Name: "{group}\A.S.D Home Security"; Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; IconFilename: "{app}\homecamera.ico"
 Name: "{group}\Find camera again"; Filename: "{app}\find-camera.cmd"; IconFilename: "{app}\homecamera.ico"
 Name: "{group}\Change password"; Filename: "{app}\change-password.cmd"; IconFilename: "{app}\homecamera.ico"
-Name: "{group}\Restart Home Camera"; Filename: "{app}\restart.cmd"; IconFilename: "{app}\homecamera.ico"
+Name: "{group}\Restart A.S.D Home Security"; Filename: "{app}\restart.cmd"; IconFilename: "{app}\homecamera.ico"
 Name: "{group}\Settings and logs folder"; Filename: "{commonappdata}\HomeCamera"
 Name: "{group}\Recordings folder"; Filename: "{code:StoragePath}"
-Name: "{group}\Uninstall Home Camera"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\Home Camera"; Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; IconFilename: "{app}\homecamera.ico"; Tasks: desktopicon
+Name: "{group}\Uninstall A.S.D Home Security"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\A.S.D Home Security"; Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; IconFilename: "{app}\homecamera.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; Description: "Open Home Camera now"; Flags: postinstall nowait skipifsilent shellexec
+Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; Description: "Open A.S.D Home Security now"; Flags: postinstall nowait skipifsilent shellexec
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""Home Camera"""; Flags: runhidden; RunOnceId: "EndTask"
@@ -142,7 +150,7 @@ var
   Hint: String;
 begin
   if IsUpgrade then
-    Hint := 'Home Camera is already set up. Leave these empty to keep your current password.'
+    Hint := 'A.S.D Home Security is already set up. Leave these empty to keep your current password.'
   else
     Hint := 'You''ll use this password to sign in on this PC and in the phone app. Use at least 8 characters.';
   PasswordPage := CreateInputQueryPage(wpSelectTasks,
@@ -256,11 +264,11 @@ begin
   DeleteFile(AnswersFile);
   if LoadStringFromFile(ResultFile, Lines) then SetupResult := Lines;
   if SetupCode = 3 then
-    SetupResult := 'Home Camera is installed, but it couldn''t find your camera''s video yet.' + #13#10#13#10 +
-      'Check the camera is on, then open Home Camera, go to Settings > Cameras, ' +
+    SetupResult := 'A.S.D Home Security is installed, but it couldn''t find your camera''s video yet.' + #13#10#13#10 +
+      'Check the camera is on, then open A.S.D Home Security, go to Settings > Cameras, ' +
       'check the IP address and password, and press Find and save.';
 
-  WizardForm.StatusLabel.Caption := 'Starting Home Camera...';
+  WizardForm.StatusLabel.Caption := 'Starting A.S.D Home Security...';
   Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\tools\register-task.ps1') +
     '" -AppDir "' + ExpandConstant('{app}') + '" -Port {#Port}', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/Run /TN "Home Camera"', '', SW_HIDE, ewWaitUntilTerminated, Code);
@@ -273,7 +281,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    if SuppressibleMsgBox('Also delete Home Camera''s settings (password and camera details)?' + #13#10#13#10 +
+    if SuppressibleMsgBox('Also delete A.S.D Home Security''s settings (password and camera details)?' + #13#10#13#10 +
         'Your recordings are kept either way.', mbConfirmation, MB_YESNO, IDNO) = IDYES then
       DelTree(ExpandConstant('{commonappdata}\HomeCamera'), True, True, True);
   end;

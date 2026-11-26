@@ -6,7 +6,7 @@ a checksum of HomeCameraSetup.exe and HomeCamera.apk.
 
 - PC: a newer HomeCameraSetup.exe is downloaded, checked against its checksum, and installed
   quietly (at night by default, and never while a camera is recording). Installing over the
-  top keeps the settings and recordings, then starts Home Camera again.
+  top keeps the settings and recordings, then starts A.S.D Home Security again.
 - Phone: a newer HomeCamera.apk is downloaded and kept here. The phone app asks the PC for it
   (it already signs in to the PC), so only the PC needs to reach GitHub.
 
@@ -94,7 +94,7 @@ def http_get(url, token="", accept="application/vnd.github+json", to_file=None, 
             if token:
                 raise GitHubError("GitHub didn't accept the update key. It may have expired or not have "
                                   "read access to the project. Make a new one and paste it below.")
-            raise GitHubError("Home Camera needs a read-only GitHub key to find updates, because the "
+            raise GitHubError("A.S.D Home Security needs a read-only GitHub key to find updates, because the "
                               "project is private. Add one below.")
         raise GitHubError(f"GitHub answered {e.code} {e.reason}")
     except (urllib.error.URLError, OSError) as e:
@@ -284,7 +284,7 @@ class Updater:
                 for leftover in (self.exe_path(), os.path.join(self.dir, "windows.json")):
                     if os.path.exists(leftover):
                         os.remove(leftover)
-                msg = "Home Camera is up to date." if win else "No PC update information on GitHub yet."
+                msg = "A.S.D Home Security is up to date." if win else "No PC update information on GitHub yet."
             if android and android.get("version") and (
                     not self.phone or newer(android["version"], self.phone.get("version"))
                     or not os.path.isfile(self.apk_path())):
@@ -327,7 +327,7 @@ class Updater:
         return any(getattr(c, "clip", None) is not None for c in cams.values())
 
     def install(self, reason="asked"):
-        """Starts the downloaded installer. Home Camera stops a moment later and comes back updated."""
+        """Starts the downloaded installer. A.S.D Home Security stops a moment later and comes back updated."""
         with self._lock:
             if not self.can_install:
                 raise RuntimeError("Updates can only install themselves on the Windows PC app.")

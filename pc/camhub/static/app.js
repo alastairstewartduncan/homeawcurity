@@ -356,7 +356,7 @@ function setupTalk(el, camId) {
       return;
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast('Talk: this browser only allows the microphone on a secure (https) page or on this PC itself. Use the phone app, or open Home Camera at http://localhost:8080 on the PC.');
+      toast('Talk: this browser only allows the microphone on a secure (https) page or on this PC itself. Use the phone app, or open A.S.D Home Security at http://localhost:8080 on the PC.');
       return;
     }
     const s = session = {queue: [], stopped: false, seq: 0};
@@ -546,7 +546,7 @@ function aboutCard() {
   const phone = window.HomeCamera && window.HomeCamera.appVersion ? window.HomeCamera.appVersion() : '';
   const built = v.built ? new Date(v.built) : null;
   card.innerHTML = `<h2>About</h2>
-    <p><b>Home Camera ${esc(versionText())}</b> on this PC${built && !isNaN(built) ?
+    <p><b>A.S.D Home Security ${esc(versionText())}</b> on this PC${built && !isNaN(built) ?
       `, built ${esc(built.toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}))}` : ''}.</p>
     ${phone ? `<p>Phone app: version ${esc(phone)}.</p>` : ''}
     <p class="muted">Each new download has a higher version number. Updates install by themselves (see
@@ -564,7 +564,7 @@ async function camerasCard() {
   const card = document.createElement('div'); card.className = 'card wide';
   card.innerHTML = `<h2>Cameras</h2>
     <p class="muted" style="margin-top:0">Enter the camera's IP address and login, then press <b>Find and save</b>.
-    Home Camera searches the camera for its video and starts using it straight away.
+    A.S.D Home Security searches the camera for its video and starts using it straight away.
     Find the IP address in the Hiseeu app's device info, or your router's list of devices.</p>`;
   for (const c of cams) card.appendChild(cameraForm(c));
   const add = document.createElement('button'); add.textContent = '+ Add a camera';

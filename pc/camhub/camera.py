@@ -393,7 +393,7 @@ class Camera:
 
     def _ptz_loop(self):
         # The camera may be asleep or rebooting when we start, so keep trying until pan and
-        # tilt answer. Otherwise the arrows would stay hidden until Home Camera restarts.
+        # tilt answer. Otherwise the arrows would stay hidden until A.S.D Home Security restarts.
         wait = 15
         while not self._stop.is_set() and not self.ptz.available:
             if self.ptz.connect():
@@ -500,7 +500,7 @@ class Camera:
                                         stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
                 self._proc = proc
             except FileNotFoundError:
-                self.stream_problem = "ffmpeg is missing. Reinstall Home Camera."
+                self.stream_problem = "ffmpeg is missing. Reinstall A.S.D Home Security."
                 log.error("ffmpeg was not found. Install it and try again.")
                 time.sleep(30)
                 continue

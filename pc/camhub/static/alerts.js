@@ -87,7 +87,7 @@ function readSchedule(card) {
 function phoneSection(card, p) {
   const box = $('.this-phone', card);
   if (!phone) {
-    box.innerHTML = `<p class="muted">To switch automatically, open the <b>Home Camera</b> app on each phone,
+    box.innerHTML = `<p class="muted">To switch automatically, open the <b>A.S.D Home Security</b> app on each phone,
       go to Settings > Home and away, and press <b>Use this phone's location</b>.</p>`;
     return;
   }
@@ -100,7 +100,7 @@ function phoneSection(card, p) {
     return;
   }
   if (info.on && info.homeSet) {
-    box.innerHTML = `<p><b>This phone</b> (${esc(info.name)}) tells Home Camera when it arrives home or leaves.
+    box.innerHTML = `<p><b>This phone</b> (${esc(info.name)}) tells A.S.D Home Security when it arrives home or leaves.
       ${info.permission !== 'always' ? '<br><span class="warn-text">Location is not allowed "all the time" yet, so it cannot switch by itself. Press Fix.</span>' : ''}</p>
       <div class="toolbar">
         <label>Home area <select class="radius">${[100, 150, 250, 500].map(m =>
@@ -112,7 +112,7 @@ function phoneSection(card, p) {
   } else {
     box.innerHTML = `<p><b>This phone</b> isn't sharing its location${listed ? '' : ' yet'}.
       While you're at home, press the button. Your phone will ask to use your location
-      "all the time" so it can tell Home Camera when you come and go. Only "home" or "out" is sent to your PC,
+      "all the time" so it can tell A.S.D Home Security when you come and go. Only "home" or "out" is sent to your PC,
       never where you are.</p>
       <div class="toolbar">
         <label>Home area <select class="radius">${[100, 150, 250, 500].map(m =>

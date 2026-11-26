@@ -1,4 +1,4 @@
-# Home Camera installer for Windows 10/11.
+# A.S.D Home Security installer for Windows 10/11.
 # Right-click this file and choose "Run with PowerShell". It asks for admin rights.
 #
 # What it does:
@@ -7,7 +7,7 @@
 #   3. Downloads the person detection model
 #   4. Creates config.json, sets your viewer password, and helps find the camera's stream
 #   5. Starts the recorder automatically when Windows starts (even before anyone logs in)
-#   6. Opens port 8080 on the home network and adds a "Home Camera" desktop shortcut
+#   6. Opens port 8080 on the home network and adds an "A.S.D Home Security" desktop shortcut
 
 $ErrorActionPreference = "Stop"
 
@@ -130,7 +130,7 @@ $scheme = if ($cfg.server.https_cert) { "https" } else { "http" }
 $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
 if (-not (Test-Path $edge)) { $edge = "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe" }
 $desktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-$lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktop "Home Camera.lnk"))
+$lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktop "A.S.D Home Security.lnk"))
 $lnk.TargetPath = $edge
 $lnk.Arguments = "--app=${scheme}://localhost:$port"
 $lnk.IconLocation = "$edge,0"
@@ -139,7 +139,7 @@ $lnk.Save()
 Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 Start-ScheduledTask -TaskName $TaskName
 Start-Sleep 5
-Write-Host "`nAll done. Home Camera is running and will start by itself with Windows." -ForegroundColor Green
-Write-Host "Open it with the 'Home Camera' icon on the desktop. On your phone, use http://<this PC's IP>:$port"
+Write-Host "`nAll done. A.S.D Home Security is running and will start by itself with Windows." -ForegroundColor Green
+Write-Host "Open it with the 'A.S.D Home Security' icon on the desktop. On your phone, use http://<this PC's IP>:$port"
 Write-Host "Logs are in $Pc\logs\camhub.log"
 Read-Host "Press Enter to close"

@@ -1,4 +1,4 @@
-# Home Camera
+# A.S.D Home Security
 
 Motion recording, live view and playback for an IP camera (built for the Hiseeu WHC905), with a
 Windows recorder and an Android app.
@@ -23,7 +23,7 @@ Windows recorder and an Android app.
 ```
  Camera ──RTSP──▶ PC recorder (pc/) ──▶ C:\CameraRecordings
                    │  web viewer + API on port 8080
-                   ├──▶ "Home Camera" window on the PC
+                   ├──▶ "A.S.D Home Security" window on the PC
                    └──▶ Android app (android/): live, recordings, alerts
 ```
 
@@ -34,7 +34,7 @@ The small second stream from the camera is used for motion and person detection 
 
 You need Windows 10 or 11 (64-bit). The PC should stay switched on.
 
-1. Download **HomeCameraSetup.exe** from this repository's **Releases** (Home Camera, latest build)
+1. Download **HomeCameraSetup.exe** from this repository's **Releases** (A.S.D Home Security, latest build)
    and run it. Windows may warn that the app is from an unknown publisher: choose
    **More info**, then **Run anyway**.
 2. Follow the wizard:
@@ -43,19 +43,19 @@ You need Windows 10 or 11 (64-bit). The PC should stay switched on.
      devices), user name and password. Setup searches the camera for its video and saves what it
      finds, including the pan and tilt (ONVIF) details. Leave the IP empty to do this later.
    - **Where to keep recordings**: default `C:\CameraRecordings`.
-3. Done. Open **Home Camera** from the desktop or Start menu. It starts by itself with Windows,
+3. Done. Open **A.S.D Home Security** from the desktop or Start menu. It starts by itself with Windows,
    even before anyone signs in.
 
-**To add a camera or change its IP address or login later**, open Home Camera, go to
+**To add a camera or change its IP address or login later**, open A.S.D Home Security, go to
 **Settings > Cameras**, fill in the details and press **Find and save**. It searches the camera
 and starts using it straight away, with no restart needed. You can add more cameras there too.
 
 The Start menu also has **Find camera again** (the same search, from a command window), **Change
-password**, **Restart Home Camera**, and shortcuts to the settings and recordings folders.
+password**, **Restart A.S.D Home Security**, and shortcuts to the settings and recordings folders.
 Settings live in `C:\ProgramData\HomeCamera\config.json`; after editing that file by hand, use
-**Restart Home Camera**. Settings changed in the viewer's Settings tab apply straight away.
+**Restart A.S.D Home Security**. Settings changed in the viewer's Settings tab apply straight away.
 
-To remove it, uninstall **Home Camera** from Windows Settings > Apps. Your recordings are kept.
+To remove it, uninstall **A.S.D Home Security** from Windows Settings > Apps. Your recordings are kept.
 
 <details>
 <summary>Running from source instead (for developers)</summary>
@@ -88,7 +88,7 @@ So you keep the footage if the PC is stolen, open **Settings > Off-site backup**
   to stay under the size limit (free OneDrive has 5 GB, free Google Drive 15 GB).
 - OneDrive comes with Windows: open it from the Start menu and sign in. For Google Drive, install
   Google Drive for desktop and in its settings choose **Mirror files**, so it has a normal folder
-  (usually `C:\Users\<you>\My Drive`) that Home Camera can find.
+  (usually `C:\Users\<you>\My Drive`) that A.S.D Home Security can find.
 
 ### Settings in config.json
 
@@ -113,10 +113,10 @@ numbers and dashes only).
 ## 2. Install the Android app
 
 1. On your phone, open this repository's **Releases** on GitHub (right-hand side of the main
-   page), open **Home Camera (latest build)** and download **HomeCamera.apk**.
+   page), open **A.S.D Home Security (latest build)** and download **HomeCamera.apk**.
    (Or open the `android` folder in Android Studio and build it yourself.)
 2. Open the downloaded file. Allow installing from that source when asked.
-3. Open **Home Camera**, enter the PC's address (for example `192.168.1.20:8080`) and sign in with
+3. Open **A.S.D Home Security**, enter the PC's address (for example `192.168.1.20:8080`) and sign in with
    your password. Allow notifications, and allow it to run without battery restrictions so alerts
    arrive while the phone is asleep.
 
@@ -151,7 +151,7 @@ Your phone is told, whether you're home or away, when:
 The phone also warns by itself if it can't reach the PC for 15 minutes while the phone has
 internet, for example after a power cut. Problems also show as a banner on the Live tab. Change the
 minutes or turn each alert off in **Settings > Health alerts**; turn the phone's own warning off in
-Android's notification settings for Home Camera ("Can't reach the PC").
+Android's notification settings for A.S.D Home Security ("Can't reach the PC").
 
 ## AI agents and skills (AI tab)
 
@@ -233,9 +233,9 @@ internet unencrypted. Five wrong passwords from one address locks it out for 15 
 
 ## Troubleshooting
 
-- **Logs:** `C:\ProgramData\HomeCamera\logs\camhub.log` (Start menu > Home Camera > Settings and logs folder)
+- **Logs:** `C:\ProgramData\HomeCamera\logs\camhub.log` (Start menu > A.S.D Home Security > Settings and logs folder)
 - **Camera not found, or its address changed:** Settings > Cameras in the viewer, then **Find and save**.
-- **Change the password:** Start menu > Home Camera > Change password. This signs out every
+- **Change the password:** Start menu > A.S.D Home Security > Change password. This signs out every
   device, including the phone.
 - **No pan and tilt buttons:** the camera didn't answer ONVIF on the given port. Check the
   `onvif` section and that ONVIF is on in the camera's settings.

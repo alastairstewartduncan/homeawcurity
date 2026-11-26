@@ -3,7 +3,7 @@ survive if the PC is stolen or broken.
 
 The recorder copies each clip into "<chosen folder>/Home Camera recordings/<camera>/<day>/"
 and the OneDrive or Google Drive app on the PC uploads it from there. This needs no
-sign-in inside Home Camera and keeps working however the cloud app is set up.
+sign-in inside A.S.D Home Security and keeps working however the cloud app is set up.
 
 - The picture from the start of a recording is copied within seconds, while the camera is
   still recording, so there is something off-site even if the PC is taken mid-recording.
@@ -137,7 +137,7 @@ class Backup:
                 f.write("ok")
             os.remove(test)
         except OSError as e:
-            return f"Home Camera couldn't save files there ({e.strerror or e})."
+            return f"A.S.D Home Security couldn't save files there ({e.strerror or e})."
         return None
 
     # ---- copying ------------------------------------------------------------

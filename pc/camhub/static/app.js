@@ -526,6 +526,7 @@ async function loadSettings() {
     if (window.privacyCard) wrap.appendChild(await window.privacyCard(c));
   }
   if (window.alertCards) for (const card of await window.alertCards()) wrap.appendChild(card);
+  if (window.homeLinksCard) wrap.appendChild(await window.homeLinksCard());
   wrap.appendChild(storageCard());
   if (window.backupCard) wrap.appendChild(await backupCard());
   wrap.appendChild(aboutCard());

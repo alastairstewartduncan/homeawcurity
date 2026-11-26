@@ -526,6 +526,7 @@ async function loadSettings() {
     if (window.privacyCard) wrap.appendChild(await window.privacyCard(c));
   }
   wrap.appendChild(storageCard());
+  if (window.backupCard) wrap.appendChild(await backupCard());
   wrap.appendChild(aboutCard());
 }
 
@@ -753,6 +754,7 @@ function listen() {
     const e = JSON.parse(m.data);
     if (e.type === 'clip_started') toast(`${e.camera_name}: ${e.person ? 'person seen' : 'movement'}, recording`);
     if (e.type === 'person') toast(`${e.camera_name}: person seen`);
+    if (e.type === 'backup') toast(e.ok ? e.message : 'Off-site backup problem: ' + e.message);
     if (e.type === 'clip_described') {
       const c = clipList.find(x => x.id === e.clip);
       if (c) { c.summary = e.summary; c.tags = e.tags; if (!playing) renderClips(); }

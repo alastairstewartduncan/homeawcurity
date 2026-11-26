@@ -44,6 +44,7 @@ def setup_logging(log_dir):
 
 class Hub:
     def __init__(self, config):
+        from .backup import Backup
         from .detector import PersonDetector
         from .events import EventBus
         from .storage import Storage
@@ -51,6 +52,7 @@ class Hub:
         self.config = config
         self.storage = Storage(config)
         self.events = EventBus()
+        self.backup = Backup(config, self.storage, self.events)
         self.detector = PersonDetector()
         self.cameras = {}
         self.started = False
@@ -77,6 +79,7 @@ class Hub:
     def start(self):
         self.started = True
         self.storage.start_cleanup_thread()
+        self.backup.start()
         self.agents.start()
         for cam in self.cameras.values():
             cam.start()

@@ -75,6 +75,21 @@ PowerShell**. It installs Python and FFmpeg, asks for a password and the camera,
   to H.264 in its app.
 - Keep the camera's own SD card recording on. It's a second copy if the PC is ever off.
 
+### Off-site backup (OneDrive or Google Drive)
+
+So you keep the footage if the PC is stolen, open **Settings > Off-site backup**, tick
+**Back up recordings**, pick your OneDrive or Google Drive folder and press **Save**.
+
+- The picture from the start of each recording is copied within seconds; the video as soon as
+  the recording ends. The OneDrive or Google Drive app on the PC then uploads it.
+- Everything goes into a folder called `Home Camera recordings` inside the folder you pick.
+- Deleting a clip in the viewer does not delete its backup.
+- Old backups are removed after the number of days you choose, and the oldest are removed first
+  to stay under the size limit (free OneDrive has 5 GB, free Google Drive 15 GB).
+- OneDrive comes with Windows: open it from the Start menu and sign in. For Google Drive, install
+  Google Drive for desktop and in its settings choose **Mirror files**, so it has a normal folder
+  (usually `C:\Users\<you>\My Drive`) that Home Camera can find.
+
 ### Settings in config.json
 
 | Setting | Meaning |
@@ -84,6 +99,8 @@ PowerShell**. It installs Python and FFmpeg, asks for a password and the camera,
 | `storage.min_free_gb` | Always leave this much space free, deleting the oldest clips if needed. |
 | `server.port` | Port for the viewer and the app. Default 8080. |
 | `server.https_cert`, `server.https_key` | Paths to a certificate and key to switch on HTTPS. |
+| `backup.enabled`, `backup.folder` | Copy recordings off-site into this folder. (Also in Settings.) |
+| `backup.keep_days`, `backup.max_gb` | How long to keep backups, and the most space they may use. |
 | `cameras[].motion.person_only` | `true` to record only when a person is seen. |
 | `cameras[].motion.pre_seconds` / `post_seconds` | Seconds kept before and after the motion. |
 

@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -55,8 +56,12 @@ def _find(xml, tag):
     return m.group(1).strip() if m else None
 
 
+# Ports cameras commonly answer ONVIF on. The Hiseeu WHC905 uses 8888.
+COMMON_PORTS = [8888, 8899, 80, 8000, 8080, 5000, 2020]
+
+
 class OnvifPtz:
-    def __init__(self, host, port, username, password):
+    def __init__(self, host, port, username, password, on_port_found=None):
         self.host = host
         self.port = port
         self.username = username
@@ -67,10 +72,12 @@ class OnvifPtz:
         self.profile = None
         self.offset = datetime.timedelta(0)
         self.available = False
+        self.zoom = False           # the camera has an optical zoom we can drive
         self.error = None
+        self.on_port_found = on_port_found   # called with the right port if it wasn't the saved one
         self._lock = threading.Lock()
 
-    def _call(self, url, body, auth=True):
+    def _call(self, url, body, auth=True, timeout=5):
         header = _security_header(self.username, self.password, self.offset) if auth else ""
         env = (
             '<?xml version="1.0" encoding="UTF-8"?>'
@@ -82,7 +89,7 @@ class OnvifPtz:
             url, data=env.encode(), headers={"Content-Type": "application/soap+xml; charset=utf-8"}
         )
         try:
-            with urllib.request.urlopen(req, timeout=5) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             text = e.read().decode("utf-8", "replace")
@@ -94,8 +101,25 @@ class OnvifPtz:
             self.error = "No ONVIF address set"
             return False
         try:
-            # Match the camera's clock, since the login digest includes the time.
-            xml = self._call(self.device_url, "<tds:GetSystemDateAndTime/>", auth=False)
+            # Match the camera's clock, since the login digest includes the time. This is also
+            # how we find the right port: the saved one first, then the usual ones.
+            xml = None
+            for port in [self.port] + [p for p in COMMON_PORTS if p != self.port]:
+                url = f"http://{self.host}:{port}/onvif/device_service"
+                try:
+                    xml = self._call(url, "<tds:GetSystemDateAndTime/>", auth=False, timeout=3)
+                except (OSError, RuntimeError):
+                    continue
+                if "Envelope" not in xml:
+                    continue
+                if port != self.port:
+                    log.info("The camera at %s answers ONVIF on port %d, not %d", self.host, port, self.port)
+                    self.port, self.device_url = port, url
+                    if self.on_port_found:
+                        self.on_port_found(port)
+                break
+            else:
+                raise RuntimeError("The camera didn't answer on any of the usual control ports")
             utc = re.search(r"UTCDateTime>(.*?)</(?:\w+:)?UTCDateTime", xml, re.S)
             if utc:
                 part = utc.group(1)
@@ -117,14 +141,25 @@ class OnvifPtz:
                 self.error = "No media profile found"
                 return False
             self.profile = m.group(1)
+            self.zoom = self._has_zoom()
             self.available = True
             self.error = None
-            log.info("Pan and tilt ready on %s (profile %s)", self.host, self.profile)
+            log.info("Pan and tilt ready on %s (profile %s, zoom %s)", self.host, self.profile,
+                     "yes" if self.zoom else "no")
             return True
         except Exception as e:  # network errors, bad replies
             self.error = str(e)
             log.warning("Pan and tilt not available on %s: %s", self.host, e)
             return False
+
+    def _has_zoom(self):
+        """Asks the camera whether it has a zoom lens. No answer counts as no zoom."""
+        try:
+            xml = self._call(self.ptz_url, "<tptz:GetNodes/>")
+        except Exception as e:
+            log.info("Couldn't ask %s whether it can zoom: %s", self.host, e)
+            return False
+        return "ContinuousZoomVelocitySpace" in xml
 
     def _fix_host(self, url):
         # Some cameras report an internal address; keep the path, use the host we know.
@@ -138,10 +173,79 @@ class OnvifPtz:
         zoom = max(-1.0, min(1.0, float(zoom)))
         body = (
             f"<tptz:ContinuousMove><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
-            f'<tptz:Velocity><tt:PanTilt x="{pan:.2f}" y="{tilt:.2f}"/>'
+            "<tptz:Velocity>"
+            + (f'<tt:PanTilt x="{pan:.2f}" y="{tilt:.2f}"/>' if pan or tilt or not zoom else "")
             + (f'<tt:Zoom x="{zoom:.2f}"/>' if zoom else "")
             + "</tptz:Velocity></tptz:ContinuousMove>"
         )
+        with self._lock:
+            self._call(self.ptz_url, body)
+
+    def presets(self):
+        """The camera's own list of positions, as [(token, name)]."""
+        with self._lock:
+            xml = self._call(self.ptz_url, f"<tptz:GetPresets><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken></tptz:GetPresets>")
+        return re.findall(r'<(?:\w+:)?Preset[^>]*token="([^"]+)"[^>]*>\s*(?:<(?:\w+:)?Name>(.*?)</)?', xml)
+
+    def save_preset(self, name, taken=()):
+        """Saves where the camera points now under `name`. Returns the camera's token for it.
+
+        Some cameras make a new slot when asked; others (like the WHC905) have fixed numbered
+        slots, and we use the first one we haven't used already.
+        """
+        def set_preset(token=None, named=True):
+            body = (f"<tptz:SetPreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                    + (f"<tptz:PresetName>{_esc(name)}</tptz:PresetName>" if named else "")
+                    + (f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken>" if token else "")
+                    + "</tptz:SetPreset>")
+            with self._lock:
+                xml = self._call(self.ptz_url, body)
+            return _find(xml, "PresetToken") or token
+
+        slots = self.presets()
+        # Lots of slots means fixed numbered ones (the WHC905 lists 255); otherwise the camera
+        # makes a new one for each save, and we mustn't overwrite positions saved in its own app.
+        if len(slots) < 32:
+            try:
+                token = set_preset()
+                if token and token not in taken:
+                    return token
+            except RuntimeError as e:
+                log.info("Camera wouldn't make a new position slot (%s); using a numbered one", e)
+        for token, _ in (slots if len(slots) >= 32 else []):
+            if token not in taken:
+                try:
+                    return set_preset(token)
+                except RuntimeError:
+                    # Some cameras won't rename a numbered slot; save the position without a name.
+                    return set_preset(token, named=False)
+        raise RuntimeError("The camera has no free position slots")
+
+    def goto_preset(self, token):
+        body = (f"<tptz:GotoPreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken></tptz:GotoPreset>")
+        with self._lock:
+            self._call(self.ptz_url, body)
+
+    def remove_preset(self, token):
+        body = (f"<tptz:RemovePreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken></tptz:RemovePreset>")
+        with self._lock:
+            self._call(self.ptz_url, body)
+
+    def nudge(self, pan, seconds=0.6):
+        """Turns a little to one side, for following movement."""
+        self.move(pan, 0)
+        time.sleep(seconds)
+        self.stop()
+
+    def home(self):
+        body = f"<tptz:GotoHomePosition><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken></tptz:GotoHomePosition>"
+        with self._lock:
+            self._call(self.ptz_url, body)
+
+    def set_home(self):
+        body = f"<tptz:SetHomePosition><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken></tptz:SetHomePosition>"
         with self._lock:
             self._call(self.ptz_url, body)
 

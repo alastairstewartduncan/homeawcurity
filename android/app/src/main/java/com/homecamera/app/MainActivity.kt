@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private var fullView: View? = null
     private var fullCallback: WebChromeClient.CustomViewCallback? = null
     private var locationRadius = 150
+    private var talk: TalkRecorder? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -207,6 +208,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        talk?.stop()
+        talk = null
         web?.onPause()
         CookieManager.getInstance().flush()
     }
@@ -371,6 +374,32 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun appVersion(): String = BuildConfig.VERSION_NAME
+
+        /** Hold to talk pressed: record the microphone and send it to the camera. */
+        @JavascriptInterface
+        fun startTalk(camId: String) {
+            runOnUiThread {
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2)
+                    Toast.makeText(this@MainActivity, "Allow the microphone, then hold the button again", Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                talk?.stop()
+                talk = TalkRecorder(prefs, camId) { problem ->
+                    runOnUiThread { Toast.makeText(this@MainActivity, "Talk: $problem", Toast.LENGTH_LONG).show() }
+                }.also { it.start() }
+            }
+        }
+
+        @JavascriptInterface
+        fun stopTalk() {
+            runOnUiThread {
+                talk?.stop()
+                talk = null
+            }
+        }
 
         @JavascriptInterface
         fun locationInfo(): String = HomePresence.info(this@MainActivity).toString()

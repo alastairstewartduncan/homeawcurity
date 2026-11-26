@@ -86,10 +86,29 @@ class Storage:
                     "duration": info.get("duration"),
                     "person": bool(info.get("person")),
                     "trigger": info.get("trigger", "motion"),
+                    "summary": info.get("ai_summary", ""),
+                    "tags": info.get("ai_tags", []),
                     "size": os.path.getsize(os.path.join(folder, f)),
                 })
         result.sort(key=lambda c: c["start"], reverse=True)
         return result
+
+    def clip_meta(self, clip_id):
+        base = self.clip_base(clip_id)
+        return self._read_meta(base + ".json") if base else {}
+
+    def update_meta(self, clip_id, values):
+        """Adds fields (such as the AI description) to a clip's .json file."""
+        base = self.clip_base(clip_id)
+        if not base or not os.path.exists(base + ".mp4"):
+            return False
+        info = self._read_meta(base + ".json")
+        info.update(values)
+        tmp = base + ".json.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(info, f, indent=1)
+        os.replace(tmp, base + ".json")
+        return True
 
     def delete_clip(self, clip_id):
         base = self.clip_base(clip_id)

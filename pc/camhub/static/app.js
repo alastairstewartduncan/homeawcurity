@@ -50,8 +50,10 @@ function showTab(name) {
     if (name === 'live') img.src = img.dataset.src + '?t=' + Date.now();
     else img.removeAttribute('src');
   });
+  if (name !== 'live') $$('#live .cam').forEach(c => c.stopListening && c.stopListening());
   if (name === 'recordings') loadDays();
   if (name === 'settings') loadSettings();
+  if (name === 'ai' && window.loadAi) window.loadAi();
 }
 $$('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 $('#logout').addEventListener('click', async () => {
@@ -62,7 +64,9 @@ $('#logout').addEventListener('click', async () => {
 
 // ---------- live ----------
 function buildLive() {
-  const wrap = $('#live'); wrap.innerHTML = '';
+  const wrap = $('#live');
+  $$('.cam', wrap).forEach(c => c.stopListening && c.stopListening());
+  wrap.innerHTML = '';
   if (!status.cameras.length) {
     wrap.innerHTML = '<div class="card empty">No camera is set up yet. <button class="primary" id="go-settings">Set up a camera</button></div>';
     $('#go-settings').addEventListener('click', () => showTab('settings'));
@@ -90,6 +94,10 @@ function buildLive() {
       (v.requestFullscreen || v.webkitRequestFullscreen || (() => {})).call(v);
     });
     setupPtz(el, c.id);
+    setupZoom(el, c.id);
+    setupListen(el, c.id);
+    setupTalk(el, c.id);
+    setupPositions(el, c.id);
     wrap.appendChild(el);
   }
   updateLive();
@@ -107,6 +115,10 @@ function updateLive() {
     why.classList.toggle('hidden', c.online || !c.problem);
     $('.ptz', el).classList.toggle('hidden', !c.ptz);
     $('.ptz-speed', el).classList.toggle('hidden', !c.ptz);
+    $('.lens', el).classList.toggle('hidden', !c.ptz_zoom);
+    $('.talk', el).classList.toggle('hidden', !c.talk);
+    $('.positions', el).classList.toggle('hidden', !c.ptz);
+    if (c.ptz && el.renderPositions) el.renderPositions(c);
   }
   const s = status.storage;
   if (s) $('#storage').textContent = `Recordings ${fmtBytes(s.recordings_bytes)} · ${fmtBytes(s.disk_free)} free`;
@@ -114,26 +126,291 @@ function updateLive() {
 }
 
 function setupPtz(el, camId) {
-  let moving = false;
   const speed = () => parseFloat($('.ptz-speed input', el).value);
   const send = (body) => api(`/api/cameras/${camId}/ptz`, {method: 'POST', body: JSON.stringify(body)})
     .catch(e => toast('Pan and tilt: ' + e.message));
-  $$('.ptz button', el).forEach(b => {
+  $$('.ptz button[data-d]', el).forEach(b => {
     const [x, y] = b.dataset.d.split(',').map(Number);
-    const start = (ev) => {
-      ev.preventDefault(); b.setPointerCapture && ev.pointerId != null && b.setPointerCapture(ev.pointerId);
-      moving = true; b.classList.add('held');
-      send({action: 'move', pan: x * speed(), tilt: y * speed()});
-    };
-    const stop = () => {
-      if (!moving) return; moving = false; b.classList.remove('held');
-      send({action: 'stop'});
-    };
-    b.addEventListener('pointerdown', start);
-    b.addEventListener('pointerup', stop);
-    b.addEventListener('pointercancel', stop);
-    b.addEventListener('lostpointercapture', stop);
+    holdButton(b, () => send({action: 'move', pan: x * speed(), tilt: y * speed()}), () => send({action: 'stop'}));
   });
+  $('.ptz .home', el).addEventListener('click', () => send({action: 'home'}));
+  for (const [cls, dir] of [['.lens-in', 1], ['.lens-out', -1]]) {
+    holdButton($(cls, el), () => send({action: 'move', pan: 0, tilt: 0, zoom: dir * speed()}), () => send({action: 'stop'}));
+  }
+}
+
+// Calls start when a button is pressed and stop when it's let go, for mouse and touch alike.
+function holdButton(b, start, stop) {
+  let held = false;
+  const down = (ev) => {
+    ev.preventDefault(); b.setPointerCapture && ev.pointerId != null && b.setPointerCapture(ev.pointerId);
+    if (held) return;
+    held = true; b.classList.add('held'); start();
+  };
+  const up = () => { if (!held) return; held = false; b.classList.remove('held'); stop(); };
+  b.addEventListener('pointerdown', down);
+  b.addEventListener('pointerup', up);
+  b.addEventListener('pointercancel', up);
+  b.addEventListener('lostpointercapture', up);
+  b.addEventListener('contextmenu', ev => ev.preventDefault());
+}
+
+// ---------- zoom ----------
+// Zooms into the picture itself, which works with every camera. Cameras with a zoom lens
+// also get Lens buttons (see setupPtz).
+function setupZoom(el, camId) {
+  const wrap = $('.video-wrap', el), img = $('img', wrap), level = $('.zoom .zoom-level', el);
+  let z = 1, ox = 0, oy = 0;          // scale and offset in pixels
+  const apply = () => {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    z = Math.max(1, Math.min(8, z));
+    ox = Math.min(0, Math.max(w - w * z, ox));
+    oy = Math.min(0, Math.max(h - h * z, oy));
+    img.style.transform = z === 1 ? '' : `translate(${ox}px, ${oy}px) scale(${z})`;
+    wrap.classList.toggle('zoomed', z > 1);
+    level.textContent = (Math.round(z * 10) / 10) + '×';
+  };
+  const zoomAt = (nz, cx, cy) => {      // keep the point under (cx, cy) still
+    nz = Math.max(1, Math.min(8, nz));
+    ox = cx - (cx - ox) * nz / z; oy = cy - (cy - oy) * nz / z; z = nz; apply();
+  };
+  const centre = () => [wrap.clientWidth / 2, wrap.clientHeight / 2];
+  $('.zoom-in', el).addEventListener('click', () => zoomAt(z * 1.5, ...centre()));
+  $('.zoom-out', el).addEventListener('click', () => zoomAt(z / 1.5, ...centre()));
+  level.addEventListener('click', () => { z = 1; apply(); });
+  wrap.addEventListener('wheel', ev => {
+    ev.preventDefault();
+    const r = wrap.getBoundingClientRect();
+    zoomAt(z * (ev.deltaY < 0 ? 1.2 : 1 / 1.2), ev.clientX - r.left, ev.clientY - r.top);
+  }, {passive: false});
+  wrap.addEventListener('dblclick', ev => {
+    const r = wrap.getBoundingClientRect();
+    if (z > 1) { z = 1; apply(); } else zoomAt(2.5, ev.clientX - r.left, ev.clientY - r.top);
+  });
+  // Drag to look around when zoomed in; pinch with two fingers to zoom.
+  const pts = new Map();
+  let pinch = null;
+  wrap.addEventListener('pointerdown', ev => {
+    wrap.setPointerCapture(ev.pointerId);
+    pts.set(ev.pointerId, [ev.clientX, ev.clientY]);
+    if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      pinch = {d: Math.hypot(a[0] - b[0], a[1] - b[1]), z};
+    }
+  });
+  wrap.addEventListener('pointermove', ev => {
+    const p = pts.get(ev.pointerId);
+    if (!p) return;
+    const r = wrap.getBoundingClientRect();
+    if (pts.size === 2 && pinch) {
+      pts.set(ev.pointerId, [ev.clientX, ev.clientY]);
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      zoomAt(pinch.z * d / pinch.d, (a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top);
+      return;
+    }
+    if (z > 1) { ox += ev.clientX - p[0]; oy += ev.clientY - p[1]; apply(); }
+    pts.set(ev.pointerId, [ev.clientX, ev.clientY]);
+  });
+  const end = ev => { pts.delete(ev.pointerId); if (pts.size < 2) pinch = null; };
+  wrap.addEventListener('pointerup', end);
+  wrap.addEventListener('pointercancel', end);
+  window.addEventListener('resize', apply);
+}
+
+// ---------- saved positions and patrol ----------
+function setupPositions(el, camId) {
+  const box = $('.positions', el), chips = $('.chips', box), form = $('.add-form', box);
+  let shown = '';
+  const call = (path, opts) => api(`/api/cameras/${camId}${path}`, opts);
+  const render = (c) => {
+    const key = JSON.stringify([c.presets, c.patrol, c.patrol_seconds, c.follow_motion]);
+    if (key === shown) return;
+    shown = key;
+    chips.innerHTML = '';
+    for (const p of c.presets || []) {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.textContent = p.name;
+      const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕';
+      b.appendChild(x);
+      b.addEventListener('click', async () => {
+        if (box.classList.contains('editing')) {
+          if (!confirm(`Forget the position "${p.name}"?`)) return;
+          await call(`/presets/${encodeURIComponent(p.token)}`, {method: 'DELETE'}).catch(e => toast(e.message));
+        } else {
+          await call(`/presets/${encodeURIComponent(p.token)}/go`, {method: 'POST'}).catch(e => toast('Position: ' + e.message));
+        }
+        refreshStatus().catch(() => {});
+      });
+      chips.appendChild(b);
+    }
+    const n = (c.presets || []).length;
+    $('.edit-pos', box).classList.toggle('hidden', !n);
+    if (!n) box.classList.remove('editing');
+    $('.patrol', box).checked = !!c.patrol;
+    $('.patrol', box).disabled = n < 2;
+    $('.patrol', box).parentElement.title = n < 2 ? 'Save at least two positions to patrol between them.' : $('.patrol', box).parentElement.title;
+    const secs = $('.patrol-secs', box);
+    if (![...secs.options].some(o => o.value === String(c.patrol_seconds))) {
+      secs.add(new Option(`${c.patrol_seconds} s`, c.patrol_seconds));
+    }
+    secs.value = String(c.patrol_seconds || 30);
+    $('.follow', box).checked = !!c.follow_motion;
+  };
+  el.renderPositions = render;
+  $('.add-pos', box).addEventListener('click', () => {
+    form.classList.remove('hidden'); $('.add-pos', box).classList.add('hidden'); $('.pos-name', box).focus();
+  });
+  const close = () => { form.classList.add('hidden'); $('.add-pos', box).classList.remove('hidden'); $('.pos-name', box).value = ''; };
+  $('.cancel-pos', box).addEventListener('click', close);
+  const save = async () => {
+    const name = $('.pos-name', box).value.trim();
+    if (!name) { $('.pos-name', box).focus(); return; }
+    try {
+      await call('/presets', {method: 'POST', body: JSON.stringify({name})});
+      toast(`Saved "${name}". Tap it to turn the camera back there.`);
+      close();
+      shown = '';
+      await refreshStatus();
+    } catch (e) { toast('Save position: ' + e.message); }
+  };
+  $('.save-pos', box).addEventListener('click', save);
+  $('.pos-name', box).addEventListener('keydown', ev => { if (ev.key === 'Enter') save(); if (ev.key === 'Escape') close(); });
+  $('.edit-pos', box).addEventListener('click', () => {
+    box.classList.toggle('editing');
+    $('.edit-pos', box).textContent = box.classList.contains('editing') ? 'Done' : 'Edit';
+  });
+  const patrol = (body) => call('/patrol', {method: 'PUT', body: JSON.stringify(body)})
+    .then(() => { shown = ''; return refreshStatus(); }).catch(e => toast(e.message));
+  $('.patrol', box).addEventListener('change', ev => patrol({enabled: ev.target.checked}));
+  $('.patrol-secs', box).addEventListener('change', ev => patrol({dwell_seconds: parseInt(ev.target.value, 10)}));
+  $('.follow', box).addEventListener('change', ev => patrol({follow_motion: ev.target.checked}));
+}
+
+// ---------- listen ----------
+// The recorder sends plain 16-bit samples; we play them as they arrive to keep the delay short.
+function setupListen(el, camId) {
+  const b = $('.listen', el);
+  let ctl = null;
+  const off = () => {
+    if (ctl) { ctl.abort(); ctl = null; }
+    b.setAttribute('aria-pressed', 'false'); b.textContent = '🔈 Listen';
+  };
+  b.addEventListener('click', async () => {
+    if (ctl) { off(); return; }
+    ctl = new AbortController();
+    const mine = ctl;
+    b.setAttribute('aria-pressed', 'true'); b.textContent = '🔊 Listening…';
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    mine.signal.addEventListener('abort', () => ac.close());
+    try {
+      const r = await fetch(`/api/cameras/${camId}/listen`, {credentials: 'same-origin', signal: mine.signal});
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || r.statusText);
+      }
+      b.textContent = '🔊 Stop listening';
+      const rate = parseInt(r.headers.get('X-Sample-Rate') || '8000', 10);
+      const reader = r.body.getReader();
+      let next = 0, spare = null;
+      while (true) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        let bytes = value;
+        if (spare) { bytes = new Uint8Array(spare.length + value.length); bytes.set(spare); bytes.set(value, spare.length); spare = null; }
+        if (bytes.length % 2) { spare = bytes.slice(-1); bytes = bytes.slice(0, -1); }
+        if (!bytes.length) continue;
+        const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
+        const buf = ac.createBuffer(1, pcm.length, rate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+        const src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination);
+        // Start a little behind so small hiccups in the network don't cause gaps,
+        // and catch up if we've fallen more than a second behind.
+        if (next < ac.currentTime || next > ac.currentTime + 1) next = ac.currentTime + 0.25;
+        src.start(next); next += buf.duration;
+      }
+      if (ctl === mine) toast('The sound from the camera stopped.');
+    } catch (e) {
+      if (e.name !== 'AbortError') toast('Listen: ' + e.message);
+    }
+    if (ctl === mine) off();
+  });
+  // Stop when leaving the Live tab.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) off(); });
+  el.stopListening = off;
+}
+
+// ---------- talk ----------
+// Hold the button to speak through the camera's speaker. In the phone app the app records
+// the microphone itself, because Android only lets secure (https) pages use it.
+function setupTalk(el, camId) {
+  const b = $('.talk', el);
+  let session = null;
+  const start = async () => {
+    if (window.HomeCamera && window.HomeCamera.startTalk) {
+      window.HomeCamera.startTalk(camId);
+      session = {native: true};
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Talk: this browser only allows the microphone on a secure (https) page or on this PC itself. Use the phone app, or open Home Camera at http://localhost:8080 on the PC.');
+      return;
+    }
+    const s = session = {queue: [], stopped: false, seq: 0};
+    try {
+      s.stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}});
+    } catch (e) {
+      toast('Talk: the microphone was not allowed (' + e.message + ').');
+      session = null; return;
+    }
+    if (s.stopped) { s.stream.getTracks().forEach(t => t.stop()); return; }
+    s.ac = new (window.AudioContext || window.webkitAudioContext)();
+    const src = s.ac.createMediaStreamSource(s.stream);
+    const proc = s.ac.createScriptProcessor(2048, 1, 1);
+    const ratio = s.ac.sampleRate / 8000;
+    let pos = 0;
+    proc.onaudioprocess = ev => {
+      const inp = ev.inputBuffer.getChannelData(0);
+      const out = [];
+      for (; pos < inp.length; pos += ratio) {
+        const v = Math.max(-1, Math.min(1, inp[Math.floor(pos)]));
+        out.push(v < 0 ? v * 32768 : v * 32767);
+      }
+      pos -= inp.length;
+      s.queue.push(Int16Array.from(out));
+    };
+    src.connect(proc); proc.connect(s.ac.destination);
+    const flush = async () => {
+      if (!s.queue.length) return;
+      const n = s.queue.reduce((a, q) => a + q.length, 0);
+      const all = new Int16Array(n); let o = 0;
+      for (const q of s.queue.splice(0)) { all.set(q, o); o += q.length; }
+      try {
+        const r = await fetch(`/api/cameras/${camId}/talk?seq=${s.seq++}`, {method: 'POST', credentials: 'same-origin',
+          headers: {'Content-Type': 'application/octet-stream'}, body: all.buffer});
+        if (!r.ok && !s.failed) {
+          s.failed = true;
+          const j = await r.json().catch(() => ({}));
+          toast('Talk: ' + (j.detail || r.statusText));
+        }
+      } catch (e) { /* the next chunk will try again */ }
+    };
+    s.timer = setInterval(flush, 200);
+    s.flush = flush;
+  };
+  const stop = () => {
+    const s = session; session = null;
+    if (!s) return;
+    if (s.native) { window.HomeCamera.stopTalk(); return; }
+    s.stopped = true;
+    clearInterval(s.timer);
+    if (s.flush) s.flush();
+    if (s.stream) s.stream.getTracks().forEach(t => t.stop());
+    if (s.ac) s.ac.close();
+  };
+  holdButton(b, () => { if (!session) start(); }, stop);
 }
 
 // ---------- recordings ----------
@@ -172,7 +449,8 @@ function renderClips() {
     b.innerHTML = `<div class="thumb" style="background-image:url('/api/clips/${c.id}/thumb')">
         <span class="badge ${c.person ? 'person' : ''}">${c.person ? 'Person' : 'Motion'}</span></div>
       <div class="meta"><span>${t.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}${multi ? ' · ' + camName(c.camera) : ''}</span>
-      <span class="muted">${fmtDur(c.duration)}</span></div>`;
+      <span class="muted">${fmtDur(c.duration)}</span></div>
+      ${c.summary ? `<div class="ai-summary" title="Described by AI">${esc(c.summary)}</div>` : ''}`;
     b.addEventListener('click', () => openClip(c.id));
     wrap.appendChild(b);
   }
@@ -187,7 +465,8 @@ function openClip(id) {
   v.play().catch(() => {});
   const when = c ? new Date(c.start) : null;
   $('#player-title').textContent = when
-    ? `${camName(c.camera)} · ${when.toLocaleString()} · ${c.person ? 'Person' : 'Motion'}` : id;
+    ? `${camName(c.camera)} · ${when.toLocaleString()} · ${c.summary || (c.person ? 'Person' : 'Motion')}` : id;
+  $('#describe').classList.toggle('hidden', !c || !!c.summary || !window.describeClip);
   $('#download').href = `/api/clips/${id}/video?download=1`;
   $('#player').classList.remove('hidden');
   const list = visibleClips(); const i = list.findIndex(x => x.id === id);
@@ -244,9 +523,11 @@ async function loadSettings() {
   for (const c of status.cameras) {
     const s = await api(`/api/cameras/${c.id}/settings`);
     wrap.appendChild(settingsCard(c, s.motion));
+    if (window.privacyCard) wrap.appendChild(await window.privacyCard(c));
   }
   if (window.alertCards) for (const card of await window.alertCards()) wrap.appendChild(card);
   wrap.appendChild(storageCard());
+  if (window.backupCard) wrap.appendChild(await backupCard());
   wrap.appendChild(aboutCard());
 }
 
@@ -299,7 +580,7 @@ function cameraForm(c) {
       <label>User name<input name="user" value="${esc(c ? c.user || 'admin' : 'admin')}" autocomplete="off"></label>
       <label>Password<input name="password" type="password" autocomplete="new-password"
         placeholder="${c && c.has_password ? 'Unchanged' : 'Camera password'}"></label>
-      <label>ONVIF port<input name="onvif_port" value="${esc(c ? c.onvif_port : 8899)}" inputmode="numeric"></label>
+      <label>ONVIF port<input name="onvif_port" value="${esc(c ? c.onvif_port : 8888)}" inputmode="numeric"></label>
     </div>
     <div class="toolbar"><button class="primary find">Find and save</button>
       ${c && c.configured ? '<button class="diag">Check video</button>' : ''}
@@ -475,6 +756,16 @@ function listen() {
     const e = JSON.parse(m.data);
     if (e.type === 'clip_started') toast(`${e.camera_name}: ${e.person ? 'person seen' : 'movement'}, recording`);
     if (e.type === 'person') toast(`${e.camera_name}: person seen`);
+    if (e.type === 'backup') toast(e.ok ? e.message : 'Off-site backup problem: ' + e.message);
+    if (e.type === 'clip_described') {
+      const c = clipList.find(x => x.id === e.clip);
+      if (c) { c.summary = e.summary; c.tags = e.tags; if (!playing) renderClips(); }
+    }
+    if (e.type === 'ai_digest') toast('Morning digest: ' + (e.text || '').split('\n')[0]);
+    if (e.type === 'ai_alert') {
+      toast(`${e.camera_name} · ${e.agent_name}: ${e.message}`);
+      if (window.refreshAiActivity && !$('#tab-ai').classList.contains('hidden')) window.refreshAiActivity();
+    }
     refreshStatus();
     if (window.onAlertEvent) window.onAlertEvent(e);
     if (e.type === 'clip_saved' && !$('#tab-recordings').classList.contains('hidden') && !playing) loadDays();

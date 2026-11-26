@@ -9,7 +9,7 @@ import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
-from . import BUILT, COMMIT, __version__, auth
+from . import BUILT, COMMIT, __version__, auth, backup
 
 log = logging.getLogger("camhub.server")
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -163,13 +163,142 @@ def create_app(hub):
             if not cam.ptz or not await asyncio.to_thread(cam.ptz.connect):
                 raise HTTPException(409, cam.ptz.error if cam.ptz else "Pan and tilt not set up")
         body = await request.json()
+        cam.ptz_moved(manual=True)
         try:
             if body.get("action") == "stop":
                 await asyncio.to_thread(cam.ptz.stop)
+            elif body.get("action") == "home":
+                await asyncio.to_thread(cam.ptz.home)
+            elif body.get("action") == "set_home":
+                await asyncio.to_thread(cam.ptz.set_home)
             else:
                 await asyncio.to_thread(cam.ptz.move, body.get("pan", 0), body.get("tilt", 0), body.get("zoom", 0))
         except Exception as e:
             raise HTTPException(502, f"Camera refused: {e}")
+        return {"ok": True}
+
+    @app.get("/api/cameras/{cam_id}/listen")
+    async def listen(cam_id: str, request: Request):
+        """The camera's sound as raw 16-bit mono samples (rate in X-Sample-Rate)."""
+        from .audio import RATE
+
+        cam = cam_or_404(cam_id)
+        q = cam.audio.subscribe()
+        try:
+            first = await asyncio.to_thread(q.get, True, 10)
+        except queue.Empty:
+            first = None
+        if first is None:
+            cam.audio.unsubscribe(q)
+            raise HTTPException(409, cam.audio.problem or "No sound came from the camera.")
+
+        async def sound():
+            try:
+                yield first
+                while not await request.is_disconnected():
+                    try:
+                        data = await asyncio.to_thread(q.get, True, 2)
+                    except queue.Empty:
+                        continue
+                    if data is None:
+                        break
+                    yield data
+            finally:
+                cam.audio.unsubscribe(q)
+
+        return StreamingResponse(sound(), media_type="application/octet-stream",
+                                 headers={"Cache-Control": "no-store", "X-Sample-Rate": str(RATE),
+                                          "X-Accel-Buffering": "no"})
+
+    def ptz_ready(cam):
+        if not cam.ptz or not cam.ptz.available:
+            raise HTTPException(409, (cam.ptz.error if cam.ptz else None) or "Turning isn't set up for this camera")
+
+    @app.post("/api/cameras/{cam_id}/presets")
+    async def save_preset(cam_id: str, request: Request):
+        """Saves where the camera points now. Body: {"name"}."""
+        cam = cam_or_404(cam_id)
+        ptz_ready(cam)
+        name = str((await request.json()).get("name") or "").strip()[:30]
+        if not name:
+            raise HTTPException(400, "Give the position a name, for example Gate")
+        presets = cam.ptz_cfg.setdefault("presets", [])
+        same = next((p for p in presets if p["name"].lower() == name.lower()), None)
+        taken = {p["token"] for p in presets if p is not same}
+        try:
+            token = await asyncio.to_thread(cam.ptz.save_preset, name, taken)
+        except Exception as e:
+            raise HTTPException(502, f"The camera didn't save it: {e}")
+        if same:
+            same["token"] = token
+        else:
+            if len(presets) >= 20:
+                raise HTTPException(400, "Up to 20 positions can be saved")
+            presets.append({"name": name, "token": token})
+        config.save()
+        return {"presets": presets}
+
+    @app.post("/api/cameras/{cam_id}/presets/{token}/go")
+    async def goto_preset(cam_id: str, token: str):
+        cam = cam_or_404(cam_id)
+        ptz_ready(cam)
+        if not any(p["token"] == token for p in cam.ptz_cfg.get("presets", [])):
+            raise HTTPException(404, "No such position")
+        cam.ptz_moved(manual=True)
+        try:
+            await asyncio.to_thread(cam.ptz.goto_preset, token)
+        except Exception as e:
+            raise HTTPException(502, f"Camera refused: {e}")
+        return {"ok": True}
+
+    @app.delete("/api/cameras/{cam_id}/presets/{token}")
+    async def delete_preset(cam_id: str, token: str):
+        cam = cam_or_404(cam_id)
+        presets = cam.ptz_cfg.get("presets", [])
+        if not any(p["token"] == token for p in presets):
+            raise HTTPException(404, "No such position")
+        cam.ptz_cfg["presets"] = [p for p in presets if p["token"] != token]
+        config.save()
+        if cam.ptz and cam.ptz.available:
+            try:
+                await asyncio.to_thread(cam.ptz.remove_preset, token)
+            except Exception:
+                pass   # forgetting it here is what matters; some cameras won't clear fixed slots
+        return {"presets": cam.ptz_cfg["presets"]}
+
+    @app.put("/api/cameras/{cam_id}/patrol")
+    async def put_patrol(cam_id: str, request: Request):
+        """Body: {"enabled", "dwell_seconds", "follow_motion"}, all optional."""
+        cam = cam_or_404(cam_id)
+        body = await request.json()
+        p = cam.ptz_cfg
+        patrol = p.setdefault("patrol", {"enabled": False, "dwell_seconds": 30})
+        if "enabled" in body:
+            patrol["enabled"] = bool(body["enabled"])
+            cam._patrol_pause_until = 0.0
+        if "dwell_seconds" in body:
+            try:
+                patrol["dwell_seconds"] = max(10, min(3600, int(body["dwell_seconds"])))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Use a whole number of seconds")
+        if "follow_motion" in body:
+            p["follow_motion"] = bool(body["follow_motion"])
+        config.save()
+        return {"patrol": patrol, "follow_motion": p.get("follow_motion", False)}
+
+    @app.post("/api/cameras/{cam_id}/talk")
+    async def talk(cam_id: str, request: Request):
+        """A short piece of 8 kHz 16-bit mono sound to play through the camera's speaker."""
+        cam = cam_or_404(cam_id)
+        data = await request.body()
+        if len(data) > 64000:
+            raise HTTPException(413, "Too much sound in one go")
+        if cam.talker.supported is False:
+            raise HTTPException(409, cam.talker.problem or "This camera can't play sound from Home Camera.")
+        try:
+            await asyncio.to_thread(cam.talker.put, data)
+        except Exception as e:
+            raise HTTPException(409, f"Couldn't talk through the camera: {e}")
         return {"ok": True}
 
     @app.get("/api/cameras/{cam_id}/settings")
@@ -214,7 +343,7 @@ def create_app(hub):
             "ip": on.get("host", ""),
             "user": on.get("username", ""),
             "has_password": bool(on.get("password")),
-            "onvif_port": on.get("port", 8899),
+            "onvif_port": on.get("port", 8888),
             "configured": bool(c.get("main_url")),
         }
 
@@ -248,7 +377,7 @@ def create_app(hub):
         if not password and existing:
             password = (existing.get("onvif") or {}).get("password", "")
         try:
-            onvif_port = int(body.get("onvif_port") or 8899)
+            onvif_port = int(body.get("onvif_port") or 8888)
         except (TypeError, ValueError):
             raise HTTPException(400, "The ONVIF port must be a number")
 
@@ -327,6 +456,10 @@ def create_app(hub):
         config.save()
         return {"retention_days": days, "min_free_gb": free}
 
+    backup.add_routes(app, hub)
+    from .privacy import add_privacy_routes
+    add_privacy_routes(app, hub)
+
     # ---- recordings -----------------------------------------------------------
 
     @app.get("/api/days")
@@ -361,6 +494,9 @@ def create_app(hub):
         if not hub.storage.delete_clip(clip_id):
             raise HTTPException(404, "Clip not found")
         return {"ok": True}
+
+    from .ai_api import add_ai_routes
+    add_ai_routes(app, hub)
 
     # ---- live events (used for phone notifications) ---------------------------
 

@@ -7,6 +7,12 @@ Windows recorder and an Android app.
   each clip starts just before the motion. Nothing is written to disk while the scene is still.
 - **Person detection** so trees, rain, cars and cats don't fill the disk (switchable per camera).
 - **Areas to ignore**: outline a road or a hedge and movement there is ignored.
+- **Timeline** under each live picture: drag back through the day to find a recording. Clips show
+  as marks with gaps between them (nothing is recorded when nothing moves); a gap jumps to the next
+  recording, and playback carries on through the day's clips. Zoom to 6 or 1 hours, or step to
+  earlier days.
+- **Privacy areas**: cover a neighbour's window or the street with blur or black. They are hidden in
+  the live picture, saved pictures, phone alerts and new recordings (Settings > Privacy).
 - **Live view and recordings** on the PC (in its own window) and on the phone, by day, with
   thumbnails, a "People" filter, download and delete.
 - **Phone alerts** with a snapshot when a recording starts, sent straight from your PC to the app.

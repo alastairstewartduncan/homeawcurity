@@ -65,6 +65,8 @@ class Hub:
             self.cameras[c["id"]] = self._make(c)
         from .agents import AgentRunner
         self.agents = AgentRunner(self)
+        from .updater import Updater
+        self.updater = Updater(config, os.path.dirname(config.path), hub=self)
 
     def _make(self, c):
         from .camera import Camera
@@ -87,12 +89,14 @@ class Hub:
         self.storage.start_cleanup_thread()
         self.backup.start()
         self.agents.start()
+        self.updater.start()
         for cam in self.cameras.values():
             cam.start()
 
     def stop(self):
         self.health.stop()
         self.agents.stop()
+        self.updater.stop()
         for cam in self.cameras.values():
             cam.stop()
 

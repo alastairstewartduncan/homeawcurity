@@ -33,6 +33,19 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      # The phone app must be signed with the same key every time, or it can't update itself.
+      # The key is the ANDROID_KEYSTORE_B64 secret (Settings > Secrets and variables > Actions).
+      - name: Get the signing key
+        env:
+          KEY_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEY_B64" ]; then
+            echo "$KEY_B64" | base64 -d > "$RUNNER_TEMP/homecamera.jks"
+            echo "HOMECAMERA_KEYSTORE=$RUNNER_TEMP/homecamera.jks" >> "$GITHUB_ENV"
+            echo "HOMECAMERA_KEYSTORE_PASSWORD=homecamera" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret, so the phone app is signed with a throwaway key and can't update itself."
+          fi
       - name: Build APK
         working-directory: android
         run: ./gradlew --no-daemon assembleRelease -PappVersionCode=${{ github.run_number }} -PappVersionName=$APP_VERSION
@@ -48,6 +61,13 @@ jobs:
             gh release create latest --title "Home Camera (latest build)" \
               --notes "Android app built from the newest code. Download HomeCamera.apk onto your phone and open it."
           gh release upload latest HomeCamera.apk --clobber
+          # Tells the PC there's a new phone app (only for builds signed with the lasting key,
+          # since others can't install over the phone's copy).
+          if [ -n "$HOMECAMERA_KEYSTORE" ]; then
+            printf '{"version": "%s", "code": %s, "sha256": "%s", "size": %s}' "$APP_VERSION" "${{ github.run_number }}" \
+              "$(sha256sum HomeCamera.apk | cut -d' ' -f1)" "$(stat -c%s HomeCamera.apk)" > android.json
+            gh release upload latest android.json --clobber
+          fi
           gh release edit latest --title "Home Camera $APP_VERSION" --notes "$(printf 'Newest version: **%s**, built %s.\n\n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.\n- **HomeCamera.apk**: open on your Android phone.\n\nThe version in use is shown in Home Camera under Settings > About.' "$APP_VERSION" "$(date -u '+%d %b %Y %H:%M UTC')")"
 
   windows-installer:
@@ -182,6 +202,26 @@ jobs:
           Write-Host "Sign in returned $($r.StatusCode)"
           Get-Content "$env:ProgramData\HomeCamera\logs\camhub.log" -ErrorAction SilentlyContinue
           if (-not $ok -or $r.StatusCode -ne 200) { throw "installed Home Camera is not working" }
+
+          # Automatic update: the same way camhub.exe starts an installer it downloaded
+          # (a one-off task, so it survives camhub.exe being stopped), install over the top.
+          python -c "import sys; sys.path.insert(0, '.'); from camhub.updater import launch_installer; launch_installer(sys.argv[1], sys.argv[2])" $setup "$PWD\update.log"
+          if ($LASTEXITCODE -ne 0) { throw "couldn't start the update" }
+          Start-Sleep 10
+          foreach ($i in 1..90) {
+            if ((Get-ScheduledTask -TaskName "Home Camera Update").State -ne "Running") { break }
+            Start-Sleep 5
+          }
+          Get-Content update.log -ErrorAction SilentlyContinue | Select-Object -Last 10
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep 2
+            try { if ((Invoke-WebRequest http://localhost:8080/login -UseBasicParsing).StatusCode -eq 200) { $ok = $true; break } } catch {}
+          }
+          $r = Invoke-WebRequest http://localhost:8080/api/login -Method Post -ContentType "application/json" -Body '{"password":"ci-password-123"}' -UseBasicParsing -SkipHttpErrorCheck
+          if (-not $ok -or $r.StatusCode -ne 200) { throw "Home Camera didn't come back after the automatic update (sign in $($r.StatusCode))" }
+          Write-Host "Automatic update installed and Home Camera came back with the same password."
+          schtasks /Delete /F /TN "Home Camera Update" | Out-Null
           $u = Start-Process "${env:ProgramFiles}\Home Camera\unins000.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -PassThru
           if (-not $u.WaitForExit(300000)) { throw "uninstall did not finish in 5 minutes" }
           # The uninstaller hands over to a copy of itself, so wait for the files to go.
@@ -206,6 +246,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { gh release create latest --title "Home Camera (latest build)" --notes "Newest build." }
           gh release upload latest installer/output/HomeCameraSetup.exe --clobber
           if ($LASTEXITCODE -ne 0) { throw "upload failed" }
+          # Read by Home Camera's automatic updates: the newest version and the installer's checksum.
+          $exe = Get-Item installer/output/HomeCameraSetup.exe
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          "{`"version`": `"$env:APP_VERSION`", `"sha256`": `"$hash`", `"size`": $($exe.Length)}" | Set-Content -NoNewline windows.json
+          gh release upload latest windows.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload of windows.json failed" }
           $built = (Get-Date).ToUniversalTime().ToString("dd MMM yyyy HH:mm 'UTC'")
           $notes = "Newest version: **$env:APP_VERSION**, built $built.`n`n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.`n- **HomeCamera.apk**: open on your Android phone.`n`nThe version in use is shown in Home Camera under Settings > About."
           gh release edit latest --title "Home Camera $env:APP_VERSION" --notes $notes

@@ -16,11 +16,26 @@ android {
         versionName = (project.findProperty("appVersionName") as String?) ?: "dev"
     }
 
+    // Every build must be signed with the same key, or Android refuses to install it over the
+    // last one (and the app can't update itself). The build gets the key from the
+    // ANDROID_KEYSTORE_B64 secret on GitHub (see the README). Without it, the build machine's
+    // throwaway debug key is used, which changes with every build.
+    val keystore = System.getenv("HOMECAMERA_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("homecamera") {
+                storeFile = keystore
+                storePassword = System.getenv("HOMECAMERA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("HOMECAMERA_KEY_ALIAS") ?: "homecamera"
+                keyPassword = System.getenv("HOMECAMERA_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so it installs without extra setup. Fine for personal use.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (keystore != null) "homecamera" else "debug")
         }
     }
     buildFeatures {

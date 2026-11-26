@@ -9,7 +9,7 @@ import time
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
-from . import BUILT, COMMIT, __version__, auth
+from . import BUILT, COMMIT, __version__, auth, backup
 
 log = logging.getLogger("camhub.server")
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -319,6 +319,8 @@ def create_app(hub):
         config.storage["min_free_gb"] = free
         config.save()
         return {"retention_days": days, "min_free_gb": free}
+
+    backup.add_routes(app, hub)
 
     # ---- recordings -----------------------------------------------------------
 

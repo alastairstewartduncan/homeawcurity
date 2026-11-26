@@ -23,6 +23,7 @@ import time
 import cv2
 import numpy as np
 
+from . import privacy
 from .tsbuffer import PreRollBuffer, TsPacketizer, TsStream
 
 log = logging.getLogger("camhub.camera")
@@ -146,8 +147,9 @@ class ClipWriter:
     """Pipes MPEG-TS into ffmpeg, which writes an MP4 without re-encoding the video."""
 
     def __init__(self, base_path, clip_id, cam_id, started, trigger, person, thumb_jpeg, header_bytes,
-                 started_mono=None):
+                 started_mono=None, privacy_settings=None):
         self.base = base_path
+        self.privacy = privacy_settings  # areas to cover once the clip is finished, or None
         self.clip_id = clip_id
         self.cam_id = cam_id
         self.started = started
@@ -214,6 +216,7 @@ class ClipWriter:
                 _, err = self.proc.communicate()
             meta = None
             if self.proc.returncode == 0 and os.path.exists(self.part) and os.path.getsize(self.part) > 0:
+                masked = self._cover_privacy_areas()
                 os.replace(self.part, self.base + ".mp4")
                 meta = {
                     "id": self.clip_id,
@@ -223,6 +226,8 @@ class ClipWriter:
                     "person": self.person,
                     "trigger": self.trigger,
                 }
+                if masked:
+                    meta["privacy_masked"] = True
                 with open(self.base + ".json", "w", encoding="utf-8") as f:
                     json.dump(meta, f)
                 log.info("Saved clip %s (%.0f s)", self.clip_id, duration)
@@ -237,6 +242,18 @@ class ClipWriter:
                 on_done(meta)
 
         threading.Thread(target=finish, name=f"finish-{self.clip_id}", daemon=True).start()
+
+    def _cover_privacy_areas(self):
+        """Makes the finished clip again with the privacy areas covered. True if it did."""
+        if not self.privacy:
+            return False
+        tmp = self.base + ".private.mp4.part"
+        if privacy.mask_clip(self.part, tmp, self.privacy):
+            os.replace(tmp, self.part)
+            log.info("Covered the privacy areas in clip %s", self.clip_id)
+            return True
+        log.error("Clip %s is kept without its privacy areas covered", self.clip_id)
+        return False
 
     def mark_person(self):
         self.person = True
@@ -464,7 +481,8 @@ class Camera:
             thumb = buf.tobytes() if ok else None
         header = self.ts.headers() + self.preroll.snapshot()
         self.clip = ClipWriter(base, clip_id, self.id, started, trigger, person, thumb, header,
-                               started_mono=self.preroll.gops[0][0])
+                               started_mono=self.preroll.gops[0][0],
+                               privacy_settings=privacy.for_recording(self.cfg))
         self.last_activity = time.monotonic()
         log.info("[%s] Recording started (%s)", self.id, trigger)
         self.events.publish({
@@ -554,6 +572,8 @@ class Camera:
                             continue
                     break
                 failures = 0
+                # Cover the privacy areas before the picture is used for anything.
+                frame = privacy.apply_to_frame(frame, privacy.settings_of(self.cfg))
                 if not got_frame:
                     got_frame = True
                     backoff = 2

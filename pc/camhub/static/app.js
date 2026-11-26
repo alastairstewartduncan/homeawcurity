@@ -244,6 +244,7 @@ async function loadSettings() {
   for (const c of status.cameras) {
     const s = await api(`/api/cameras/${c.id}/settings`);
     wrap.appendChild(settingsCard(c, s.motion));
+    if (window.privacyCard) wrap.appendChild(await window.privacyCard(c));
   }
   wrap.appendChild(storageCard());
   wrap.appendChild(aboutCard());

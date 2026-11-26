@@ -266,6 +266,8 @@ def cmd_setup(args):
 def main():
     p = argparse.ArgumentParser(prog="camhub")
     p.add_argument("--config", default=DEFAULT_CONFIG)
+    from . import __version__
+    p.add_argument("--version", action="version", version=f"Home Camera {__version__}")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("run")
     sub.add_parser("set-password")

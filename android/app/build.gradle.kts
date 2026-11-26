@@ -11,8 +11,9 @@ android {
         applicationId = "com.homecamera.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // The build passes -PappVersionCode / -PappVersionName so each download has its own number.
+        versionCode = (project.findProperty("appVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("appVersionName") as String?) ?: "dev"
     }
 
     buildTypes {
@@ -21,6 +22,9 @@ android {
             // Signed with the debug key so it installs without extra setup. Fine for personal use.
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+    buildFeatures {
+        buildConfig = true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

@@ -1,2 +1,6 @@
 """Home Camera: motion recording, live view and playback for IP cameras."""
-__version__ = "0.1.0"
+try:
+    # Written by the build (GitHub Actions) so each installer carries its own number.
+    from ._build import BUILT, COMMIT, VERSION as __version__
+except ImportError:  # running from source
+    __version__, COMMIT, BUILT = "dev", "", ""

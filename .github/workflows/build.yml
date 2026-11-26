@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  # One number for every build: the PC app, the installer and the phone app all show it.
+  APP_VERSION: 1.0.${{ github.run_number }}
+
 jobs:
   recorder-tests:
     runs-on: ubuntu-latest
@@ -31,7 +35,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build APK
         working-directory: android
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon assembleRelease -PappVersionCode=${{ github.run_number }} -PappVersionName=$APP_VERSION
       # Published as a release download rather than a build artifact, so it doesn't use
       # the account's artifact storage and the link stays the same.
       - name: Publish APK to the "latest" release
@@ -44,6 +48,7 @@ jobs:
             gh release create latest --title "Home Camera (latest build)" \
               --notes "Android app built from the newest code. Download HomeCamera.apk onto your phone and open it."
           gh release upload latest HomeCamera.apk --clobber
+          gh release edit latest --title "Home Camera $APP_VERSION" --notes "$(printf 'Newest version: **%s**, built %s.\n\n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.\n- **HomeCamera.apk**: open on your Android phone.\n\nThe version in use is shown in Home Camera under Settings > About.' "$APP_VERSION" "$(date -u '+%d %b %Y %H:%M UTC')")"
 
   windows-installer:
     runs-on: windows-latest
@@ -70,6 +75,13 @@ jobs:
           Invoke-WebRequest "$base/deploy.prototxt" -OutFile models/deploy.prototxt
           Invoke-WebRequest "$base/mobilenet_iter_73000.caffemodel" -OutFile models/mobilenet_iter_73000.caffemodel
 
+      - name: Stamp the version
+        run: |
+          $built = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $commit = "${{ github.sha }}".Substring(0, 7)
+          "VERSION = `"$env:APP_VERSION`"`nCOMMIT = `"$commit`"`nBUILT = `"$built`"" | Set-Content camhub/_build.py
+          Get-Content camhub/_build.py
+
       - name: Package camhub.exe
         run: pyinstaller --noconfirm installer/camhub.spec
 
@@ -83,6 +95,8 @@ jobs:
 
       - name: Check camhub.exe runs
         run: |
+          $v = (dist/camhub/camhub.exe --version | Out-String).Trim()
+          if ($v -ne "Home Camera $env:APP_VERSION") { throw "camhub.exe says '$v', expected $env:APP_VERSION" }
           '{"password": "ci-password-123", "storage": "C:/ci-recordings"}' | Set-Content answers.json
           dist/camhub/camhub.exe --config "$PWD/ci/config.json" setup --answers answers.json
           if ($LASTEXITCODE -ne 0) { throw "setup failed: $LASTEXITCODE" }
@@ -145,7 +159,7 @@ jobs:
       - name: Build the installer
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=1.0.${{ github.run_number }}" installer/HomeCamera.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:APP_VERSION" installer/HomeCamera.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
           Get-ChildItem installer/output
 
@@ -191,3 +205,7 @@ jobs:
           gh release view latest *> $null
           if ($LASTEXITCODE -ne 0) { gh release create latest --title "Home Camera (latest build)" --notes "Newest build." }
           gh release upload latest installer/output/HomeCameraSetup.exe --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload failed" }
+          $built = (Get-Date).ToUniversalTime().ToString("dd MMM yyyy HH:mm 'UTC'")
+          $notes = "Newest version: **$env:APP_VERSION**, built $built.`n`n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.`n- **HomeCamera.apk**: open on your Android phone.`n`nThe version in use is shown in Home Camera under Settings > About."
+          gh release edit latest --title "Home Camera $env:APP_VERSION" --notes $notes

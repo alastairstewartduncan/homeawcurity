@@ -209,6 +209,13 @@ class ClipWriter:
 
         def finish():
             self.thread.join(timeout=30)
+            # The pump has closed ffmpeg's input. Python 3.12's communicate() tries to flush it
+            # again and fails, which left every finished clip unsaved, so let go of it first.
+            try:
+                self.proc.stdin.close()
+            except OSError:
+                pass
+            self.proc.stdin = None
             try:
                 _, err = self.proc.communicate(timeout=60)
             except subprocess.TimeoutExpired:

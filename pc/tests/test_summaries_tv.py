@@ -147,7 +147,8 @@ def test_summary_and_tv_routes(tmp_path, monkeypatch):
     r = other.get(link["summary"] + "2026-11-26.mp4")
     assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "*"
     r = other.get(link["sources"][1]["live"])
-    assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "*"
+    assert r.status_code == 200, r.text
+    assert r.headers["access-control-allow-origin"] == "*"
     piece = [ln for ln in r.text.splitlines() if ln and not ln.startswith("#")][0]
     assert piece.startswith("p/front-")
     base = link["sources"][1]["live"].rsplit("/", 1)[0]

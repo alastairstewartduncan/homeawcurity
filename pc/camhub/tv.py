@@ -188,13 +188,15 @@ class TV:
         self._pieces = None
         self.keys = {}            # key -> last used (time.time())
         self.streams = {}         # source -> Stream
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     @property
     def pieces(self):
-        if self._pieces is None:
-            self._pieces = Pieces()
-        return self._pieces
+        # Made on first use, once: the stream's thread and the web server can both get here first.
+        with self.lock:
+            if self._pieces is None:
+                self._pieces = Pieces()
+            return self._pieces
 
     # ---- keys for TVs ---------------------------------------------------------------
 

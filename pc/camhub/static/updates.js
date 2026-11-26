@@ -58,9 +58,9 @@ function drawUpdates(card, s) {
         <select id="up-to">${hourOptions(s.night_end)}</select>, and never while a camera is recording.
         Recording pauses for about a minute while it installs.
         ${s.can_install ? '' : '<br>Only the installed Windows app can update itself.'}</div></div>
-    <div class="field"><label for="up-key">GitHub key (read-only)</label>
+    <div class="field"><label for="up-key">GitHub key (only for a private project)</label>
       <input type="password" id="up-key" autocomplete="off" placeholder="${s.has_token ? 'Saved. Paste a new one to replace it.' : 'github_pat_…'}">
-      <div class="hint">Needed because the Home Camera project on GitHub is private.
+      <div class="hint">Not needed while the Home Camera project on GitHub is public. Only if it's made private again:
         On github.com go to <b>Settings › Developer settings › Personal access tokens › Fine-grained tokens</b>,
         press <b>Generate new token</b>, choose <b>Only select repositories</b> and pick
         <b>homeawcurity</b>, then under <b>Repository permissions</b> set <b>Contents</b> to <b>Read-only</b>.

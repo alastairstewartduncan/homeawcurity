@@ -56,12 +56,14 @@ object Updater {
         }
     }
 
-    private fun open(prefs: Prefs, path: String) =
-        (URL(prefs.serverUrl + path).openConnection() as HttpURLConnection).apply {
+    private fun open(prefs: Prefs, path: String): HttpURLConnection {
+        if (prefs.paired) Remote.ensure(prefs)
+        return (URL(prefs.serverUrl + path).openConnection() as HttpURLConnection).apply {
             setRequestProperty("Authorization", "Bearer ${prefs.token}")
             connectTimeout = 15_000
             readTimeout = 60_000
         }
+    }
 
     private fun download(context: Context, prefs: Prefs, info: Info): File {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }

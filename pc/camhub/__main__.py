@@ -5,6 +5,7 @@
     python -m camhub find-stream <camera ip> [--user admin]
     camhub.exe setup --answers answers.json [--result result.txt]   (used by the Windows installer)
 """
+import asyncio
 import argparse
 import getpass
 import logging
@@ -73,6 +74,9 @@ class Hub:
         self.updater = Updater(config, os.path.dirname(config.path), hub=self)
         from .homelinks import HomeLinks
         self.home_links = HomeLinks(self)
+        # Away-from-home access: an encrypted port for paired phones (remote.py).
+        from .remote import RemoteAccess
+        self.remote = RemoteAccess(config, self.events)
 
     def _make(self, c):
         from .camera import Camera
@@ -108,6 +112,7 @@ class Hub:
         self.agents.stop()
         self.updater.stop()
         self.home_links.stop()
+        self.remote.stop()
         for cam in self.cameras.values():
             cam.stop()
 
@@ -167,9 +172,21 @@ def cmd_run(args):
     if s.get("https_cert") and s.get("https_key"):
         ssl = {"ssl_certfile": s["https_cert"], "ssl_keyfile": s["https_key"]}
     log.info("Home Camera running on %s://%s:%s", "https" if ssl else "http", s["host"], s["port"])
+    server = uvicorn.Server(uvicorn.Config(app, host=s["host"], port=int(s["port"]), log_level="warning",
+                                           access_log=False, log_config=None, **ssl))
+
+    async def serve():
+        # The away-access port runs in the same loop and can be switched on and off from Settings.
+        hub.remote.attach(app, asyncio.get_running_loop())
+        await server.serve()
+
     try:
-        uvicorn.run(app, host=s["host"], port=int(s["port"]), log_level="warning", access_log=False,
-                    log_config=None, **ssl)
+        # Same event loop as uvicorn.run would pick.
+        factory = getattr(server.config, "get_loop_factory", lambda: None)()
+        if factory is not None and sys.version_info >= (3, 12):
+            asyncio.run(serve(), loop_factory=factory)
+        else:
+            asyncio.run(serve())
     finally:
         hub.stop()
 

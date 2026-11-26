@@ -3,3 +3,5 @@ uvicorn>=0.29
 # OpenCV 5 dropped the model format used for person detection, so stay on 4.x.
 opencv-python-headless>=4.9,<5
 numpy>=1.26
+# Away-from-home access: makes this PC's own certificate (nothing is sent anywhere).
+cryptography>=42

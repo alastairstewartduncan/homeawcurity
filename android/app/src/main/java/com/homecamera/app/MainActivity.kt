@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -19,6 +20,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -113,9 +115,16 @@ class MainActivity : AppCompatActivity() {
             15f, "#95A0AE"
         ))
         if (problem != null) box.addView(text(problem, 15f, "#FF6B6B"))
+        if (prefs.paired) {
+            box.addView(text("This phone is set up for away from home, so it finds the PC by itself.", 15f, "#95A0AE"))
+            box.addView(Button(this).apply {
+                text = "Try again"
+                setOnClickListener { showWeb(null) }
+            })
+        }
         val input = EditText(this).apply {
             hint = "192.168.1.20:8080"
-            setText(prefs.serverUrl.removePrefix("http://"))
+            setText(prefs.homeAddress.removePrefix("http://"))
             inputType = InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_CLASS_TEXT
             setTextColor(Color.WHITE)
             setHintTextColor(Color.GRAY)
@@ -139,10 +148,38 @@ class MainActivity : AppCompatActivity() {
 
     // ---- the recorder's pages -------------------------------------------------
 
-    @SuppressLint("SetJavaScriptEnabled")
+    /** Set up for away access: work out home or away first (network), then show the pages. */
     private fun showWeb(clip: String?) {
+        if (!prefs.paired) {
+            openWeb(clip)
+            return
+        }
+        Thread {
+            Remote.choose(prefs)
+            runOnUiThread { if (!isFinishing) openWeb(clip) }
+        }.start()
+    }
+
+    /** Is this one of the PC's own addresses? */
+    private fun ownAddress(url: String): Boolean =
+        listOf(prefs.serverUrl, prefs.homeAddress, prefs.remoteHome, prefs.remoteAway)
+            .any { it.isNotEmpty() && (url == it || url.startsWith("$it/")) }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun openWeb(clip: String?) {
+        val old = web
+        web = null
         root.removeAllViews()
+        old?.destroy()
         CookieManager.getInstance().setAcceptCookie(true)
+        if (prefs.paired) {
+            // The page's own requests (live picture, sound, clips) carry this phone's key as a cookie.
+            for (base in listOf(prefs.remoteHome, prefs.remoteAway).filter { it.isNotEmpty() }) {
+                CookieManager.getInstance().setCookie(
+                    base, "camhub_device=${prefs.remoteKey}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=31536000"
+                )
+            }
+        }
         val w = WebView(this)
         web = w
         w.setBackgroundColor(Color.parseColor("#0F1216"))
@@ -159,13 +196,25 @@ class MainActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 // Stay on the recorder; open anything else in the browser.
                 val u = request.url
-                if (u.toString().startsWith(prefs.serverUrl)) return false
+                if (ownAddress(u.toString())) return false
                 startActivity(Intent(Intent.ACTION_VIEW, u))
                 return true
             }
 
+            /** The PC's own certificate isn't signed by anyone else: accept it only by its fingerprint. */
+            @SuppressLint("WebViewClientOnReceivedSslError")
+            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                if (prefs.paired && ownAddress(error.url ?: "") && Remote.matchesPin(error.certificate)) {
+                    handler.proceed()
+                } else {
+                    handler.cancel()
+                    showSetup("The connection to ${error.url} wasn't safe (its certificate isn't your PC's), so it was stopped.")
+                }
+            }
+
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
+                    Remote.forget()
                     showSetup("Couldn't reach ${prefs.serverUrl} (${error.description}). Check the PC is on and the address is right.")
                 }
             }
@@ -186,6 +235,12 @@ class MainActivity : AppCompatActivity() {
         }
         w.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
+            if (prefs.paired && url.startsWith("https://")) {
+                // Android's download manager wouldn't accept the PC's own certificate, so the app saves it.
+                Downloads.save(this, prefs, url, name, mimeType)
+                Toast.makeText(this, "Downloading $name", Toast.LENGTH_SHORT).show()
+                return@setDownloadListener
+            }
             val req = DownloadManager.Request(Uri.parse(url))
                 .addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url) ?: "")
                 .addRequestHeader("User-Agent", userAgent)
@@ -421,8 +476,54 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun signOut() {
-            prefs.token = ""
-            runOnUiThread { MonitorService.stop(this@MainActivity) }
+            val wasPaired = prefs.paired
+            prefs.loginToken = ""
+            if (wasPaired) Remote.unpair(prefs)
+            runOnUiThread {
+                MonitorService.stop(this@MainActivity)
+                if (wasPaired) {
+                    CookieManager.getInstance().removeAllCookies(null)
+                    showWeb(null)
+                }
+            }
+        }
+
+        // ---- away from home -------------------------------------------------------------
+
+        @JavascriptInterface
+        fun deviceName(): String = listOf(Build.MANUFACTURER.replaceFirstChar { it.uppercase() }, Build.MODEL)
+            .distinct().joinToString(" ").take(40)
+
+        @JavascriptInterface
+        fun remoteInfo(): String = Remote.info(this@MainActivity).toString()
+
+        /** Settings > Away from home > Set up this phone: what /api/remote/pair answered. */
+        @JavascriptInterface
+        fun pairRemote(json: String) {
+            val message = try {
+                Remote.pair(prefs, json)
+            } catch (e: Exception) {
+                val r = JSONObject().put("ok", false).put("message", "Couldn't set up: ${e.message}").toString()
+                runOnUiThread { web?.evaluateJavascript("window.onRemotePaired && window.onRemotePaired(${JSONObject.quote(r)})", null) }
+                return
+            }
+            prefs.lastEventId = 0
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                MonitorService.stop(this@MainActivity)
+                showWeb(null)
+            }
+        }
+
+        /** This phone was removed in Settings: back to the home address and password. */
+        @JavascriptInterface
+        fun unpairRemote() {
+            Remote.unpair(prefs)
+            runOnUiThread {
+                CookieManager.getInstance().removeAllCookies(null)
+                MonitorService.stop(this@MainActivity)
+                showWeb(null)
+            }
         }
 
         @JavascriptInterface

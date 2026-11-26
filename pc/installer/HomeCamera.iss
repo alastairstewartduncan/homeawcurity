@@ -74,6 +74,7 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""Home Camera"""; Flags: r
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM camhub.exe"; Flags: runhidden; RunOnceId: "Kill"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""Home Camera"""; Flags: runhidden; RunOnceId: "DeleteTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Home Camera"""; Flags: runhidden; RunOnceId: "Firewall"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Home Camera away access"""; Flags: runhidden; RunOnceId: "FirewallAway"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commonappdata}\HomeCamera\logs"

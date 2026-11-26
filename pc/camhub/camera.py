@@ -506,7 +506,13 @@ class Camera:
         """Opens the stream with OpenCV, or with our own ffmpeg if OpenCV can't."""
         if not self._use_ffmpeg_decoder:
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
-            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+            # Without timeouts OpenCV can wait for ever on a camera that stops sending (seen on a
+            # Hiseeu WHC905), leaving the live picture frozen with nothing in the log.
+            params = []
+            for name in ("CAP_PROP_OPEN_TIMEOUT_MSEC", "CAP_PROP_READ_TIMEOUT_MSEC"):
+                if hasattr(cv2, name):
+                    params += [getattr(cv2, name), 15000]
+            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG, params) if params else cv2.VideoCapture(url, cv2.CAP_FFMPEG)
             if cap.isOpened():
                 return cap
             cap.release()

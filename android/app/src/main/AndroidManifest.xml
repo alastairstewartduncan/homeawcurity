@@ -28,6 +28,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.HomeCamera">
 
+        <!-- Watch on TV: which player the Chromecast uses (Google's standard one). -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.homecamera.app.CastOptionsProvider" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"

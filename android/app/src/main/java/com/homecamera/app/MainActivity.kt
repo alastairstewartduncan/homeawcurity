@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private var fullCallback: WebChromeClient.CustomViewCallback? = null
     private var locationRadius = 150
     private var talk: TalkRecorder? = null
+    private var tv: TvCast? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,7 +90,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val clip = intent.getStringExtra(MonitorService.EXTRA_CLIP) ?: return
-        if (web != null) web?.loadUrl("${prefs.serverUrl}/#clip=$clip") else showWeb(clip)
+        if (web != null) web?.loadUrl(pageFor(clip)) else showWeb(clip)
     }
 
     // ---- first run: where is the recorder? -----------------------------------
@@ -197,9 +198,13 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Downloading $name", Toast.LENGTH_SHORT).show()
         }
         root.addView(w, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        w.loadUrl(prefs.serverUrl + if (clip != null) "/#clip=$clip" else "/")
+        w.loadUrl(if (clip != null) pageFor(clip) else prefs.serverUrl + "/")
         if (prefs.token.isNotEmpty()) startAlerts()
     }
+
+    /** A notification opens a recording, or (for "summary=<date>") a night summary. */
+    private fun pageFor(target: String) =
+        if (target.startsWith("summary=")) "${prefs.serverUrl}/#$target" else "${prefs.serverUrl}/#clip=$target"
 
     private fun exitFullScreen() {
         val v = fullView ?: return
@@ -230,6 +235,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        tv?.release()
+        tv = null
         web?.destroy()
         super.onDestroy()
     }
@@ -481,6 +488,15 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun locationOff() {
             HomePresence.turnOff(this@MainActivity)
+        }
+
+        /** Shows a camera, all cameras or a night summary on a Chromecast or Google TV. */
+        @JavascriptInterface
+        fun castMedia(url: String, title: String, live: Boolean) {
+            runOnUiThread {
+                val t = tv ?: TvCast(this@MainActivity).also { tv = it }
+                t.show(url, title, live)
+            }
         }
 
         @JavascriptInterface

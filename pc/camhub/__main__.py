@@ -69,6 +69,10 @@ class Hub:
             self.cameras[c["id"]] = self._make(c)
         from .agents import AgentRunner
         self.agents = AgentRunner(self)
+        from .summaries import NightSummaries
+        from .tv import TV
+        self.summaries = NightSummaries(self)
+        self.tv = TV(self)
         from .updater import Updater
         self.updater = Updater(config, os.path.dirname(config.path), hub=self)
         from .homelinks import HomeLinks
@@ -98,6 +102,7 @@ class Hub:
         self.storage.start_cleanup_thread()
         self.backup.start()
         self.agents.start()
+        self.summaries.start()
         self.updater.start()
         self.home_links.start()
         for cam in self.cameras.values():
@@ -106,6 +111,8 @@ class Hub:
     def stop(self):
         self.health.stop()
         self.agents.stop()
+        self.summaries.stop()
+        self.tv.stop_all()
         self.updater.stop()
         self.home_links.stop()
         for cam in self.cameras.values():

@@ -67,6 +67,8 @@ class Hub:
         self.agents = AgentRunner(self)
         from .updater import Updater
         self.updater = Updater(config, os.path.dirname(config.path), hub=self)
+        from .homelinks import HomeLinks
+        self.home_links = HomeLinks(self)
 
     def _make(self, c):
         from .camera import Camera
@@ -90,6 +92,7 @@ class Hub:
         self.backup.start()
         self.agents.start()
         self.updater.start()
+        self.home_links.start()
         for cam in self.cameras.values():
             cam.start()
 
@@ -97,6 +100,7 @@ class Hub:
         self.health.stop()
         self.agents.stop()
         self.updater.stop()
+        self.home_links.stop()
         for cam in self.cameras.values():
             cam.stop()
 

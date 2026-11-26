@@ -124,6 +124,10 @@ def create_app(hub):
     if getattr(hub, "presence", None) and getattr(hub, "health", None):
         from .alerts_api import add_alert_routes
         add_alert_routes(app, hub)
+    # Smart home links: lights, sirens and Alexa routines (homelinks.py).
+    if getattr(hub, "home_links", None):
+        from .homelinks import add_home_link_routes
+        add_home_link_routes(app, hub)
 
     def cam_or_404(cam_id):
         cam = hub.cameras.get(cam_id)

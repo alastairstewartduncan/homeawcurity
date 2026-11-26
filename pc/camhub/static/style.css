@@ -216,3 +216,20 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 button.link { background: none; border: none; color: var(--accent); padding: 4px 0; }
 .rec-src select { padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
 .clip { display: flex; flex-direction: column; justify-content: flex-start; } .clip .thumb, .clip .meta { width: 100%; }
+
+/* Settings > Smart home */
+.hl-card { grid-column: 1 / -1; }
+.hl-dev, .hl-rule { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.hl-dev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.hl-dev .hint { font-size: 13px; color: var(--muted); }
+.hl-dev .field input[type=text], .hl-dev .field input[type=password] { width: min(100%, 340px); padding: 6px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; }
+.hl-rule .r-name { flex: 1 1 160px; min-width: 0; font-weight: 600; padding: 6px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 6px; }
+.hl-sub { font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+.hl-rule .seg { margin-bottom: 6px; }
+.hl-action { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 0; }
+.hl-action select, .hl-action input[type=text] { padding: 6px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 6px; max-width: 100%; }
+.hl-action .num { width: 64px; padding: 4px; }
+.hl-log { font-size: 13px; padding: 2px 0; }

@@ -205,10 +205,39 @@ class MainActivity : AppCompatActivity() {
             openWeb(clip)
             return
         }
+        showConnecting()
         Thread {
             Remote.choose(prefs)
-            runOnUiThread { if (!isFinishing) openWeb(clip) }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                // Neither address answered: say why now, rather than a long black screen and a timeout.
+                val problem = Remote.problem
+                if (prefs.paired && problem.isNotEmpty()) showSetup(problem) else openWeb(clip)
+            }
         }.start()
+    }
+
+    /** Shown while the app works out whether the PC answers at home or from outside. */
+    private fun showConnecting() {
+        web?.let { root.removeView(it); it.destroy() }
+        web = null
+        root.removeAllViews()
+        val pad = (24 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(pad, pad, pad, pad)
+        }
+        box.addView(android.widget.ProgressBar(this))
+        box.addView(TextView(this).apply {
+            text = if (Remote.onLocalNetwork(this@MainActivity)) "Connecting to your PC…"
+                else "Connecting to your PC from outside…"
+            textSize = 16f
+            setTextColor(Color.parseColor("#8E9BB3"))
+            gravity = Gravity.CENTER
+            setPadding(0, pad / 2, 0, 0)
+        })
+        root.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     /** Is this one of the PC's own addresses? */

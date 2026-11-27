@@ -52,7 +52,15 @@ function drawRemote(card, s) {
       : `<div class="toolbar"><button class="primary rm-pair">Set up this phone for away from home</button></div>
          <p class="hint muted">Do this now, while the phone is on your home Wi-Fi.</p>`;
   } else {
-    phoneBit = `<p class="muted">To add a phone: open the A.S.D Home Security app on the phone while it's on your
+    phoneBit = '';
+  }
+  if (s.enabled && !s.away_host) {
+    phoneBit += `<p class="warn-text">⚠ Phones can't connect from outside yet, because this PC doesn't know your
+      home's internet address. Fix the router message above, or type the address under <b>Your own address</b>
+      and press Save. Phones pick it up the next time they open the app on your home Wi-Fi.</p>`;
+  }
+  if (s.enabled && !remotePhone) {
+    phoneBit += `<p class="muted">To add a phone: open the A.S.D Home Security app on the phone while it's on your
       home Wi-Fi, go to Settings > Away from home and press <b>Set up this phone</b>.</p>`;
   }
   const manual = s.enabled && (!s.upnp || s.router.state === 'error') ? `<div class="rm-manual">

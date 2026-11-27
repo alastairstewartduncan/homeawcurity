@@ -2,6 +2,8 @@ package com.homecamera.app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.http.SslCertificate
 import android.util.Log
 import org.json.JSONObject
@@ -32,6 +34,8 @@ object Remote {
     /** Which address is in use now. Updated by [choose]. */
     @Volatile var route = Route.HOME
     @Volatile private var checkedAt = 0L
+    /** Why the last check couldn't reach the PC, or "" if it did. Shown instead of a blank page. */
+    @Volatile var problem = ""
     @Volatile private var pin = ""
     private var installed = false
 
@@ -145,14 +149,17 @@ object Remote {
             checkedAt = System.currentTimeMillis()
             return route
         }
+        // The home address can only work on Wi-Fi (or a cable), so on mobile data go straight to away.
+        val local = onLocalNetwork(prefs.appContext)
         for ((r, base, timeout) in listOf(
             Triple(Route.HOME, prefs.remoteHome, 2_500),
-            Triple(Route.AWAY, prefs.remoteAway, 10_000),
+            Triple(Route.AWAY, prefs.remoteAway, 8_000),
         )) {
-            if (base.isEmpty()) continue
+            if (base.isEmpty() || (r == Route.HOME && !local)) continue
             when (hello(prefs, base, timeout)) {
                 200 -> {
                     route = r
+                    problem = ""
                     checkedAt = System.currentTimeMillis()
                     return r
                 }
@@ -165,9 +172,36 @@ object Remote {
             }
         }
         // Neither answered: keep trying the away address (the PC or the internet may be down).
-        route = if (prefs.remoteAway.isNotEmpty()) Route.AWAY else Route.HOME
+        route = if (prefs.remoteAway.isNotEmpty() && !local) Route.AWAY
+            else if (prefs.remoteHome.isNotEmpty()) Route.HOME else Route.AWAY
+        problem = when {
+            prefs.remoteAway.isEmpty() && !local ->
+                "This phone doesn't know your home's internet address yet, so it can only reach the PC on " +
+                    "your home Wi-Fi. On the PC, open Settings > Away from home: if it says the router didn't " +
+                    "open the port, turn on UPnP on the router or forward port 8443 to the PC by hand, and " +
+                    "if no internet address is shown, type it under Your own address and press Save. Then " +
+                    "open this app once on your home Wi-Fi so it picks the address up."
+            !local ->
+                "Couldn't reach your PC at ${prefs.remoteAway.removePrefix("https://")}. Check the PC is on, and " +
+                    "that your router forwards that port to the PC (Settings > Away from home on the PC shows " +
+                    "whether the router accepted it). Some providers share one internet address between " +
+                    "customers, which blocks this: the same page warns about that."
+            else ->
+                "Couldn't reach your PC on this Wi-Fi or from outside. Check the PC is on and A.S.D Home " +
+                    "Security is running on it."
+        }
         checkedAt = System.currentTimeMillis()
         return route
+    }
+
+    /** True on Wi-Fi or a cable, where the PC's home address may answer. */
+    fun onLocalNetwork(context: Context): Boolean = try {
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    } catch (_: Exception) {
+        true
     }
 
     /** HTTP status of /api/remote/hello, or -1 if it couldn't connect. */

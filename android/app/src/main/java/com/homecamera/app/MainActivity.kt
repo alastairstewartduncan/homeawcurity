@@ -107,9 +107,9 @@ class MainActivity : AppCompatActivity() {
         fun text(t: String, size: Float, color: String) = TextView(this).apply {
             text = t; textSize = size; setTextColor(Color.parseColor(color)); setPadding(0, 0, 0, pad / 2)
         }
-        box.addView(text("Home Camera", 26f, "#E8ECF1"))
+        box.addView(text("A.S.D Home Security", 26f, "#E8ECF1"))
         box.addView(text(
-            "Enter the address of the PC running Home Camera. At home that's its local address, " +
+            "Enter the address of the PC running A.S.D Home Security. At home that's its local address, " +
                 "for example 192.168.1.20:8080. Away from home use the address you set up on your router.",
             15f, "#95A0AE"
         ))
@@ -260,7 +260,7 @@ class MainActivity : AppCompatActivity() {
         prefs.askedBattery = true
         AlertDialog.Builder(this)
             .setTitle("Allow alerts in the background?")
-            .setMessage("So that motion alerts arrive while your phone is asleep, let Home Camera run without battery restrictions. It uses very little power.")
+            .setMessage("So that motion alerts arrive while your phone is asleep, let A.S.D Home Security run without battery restrictions. It uses very little power.")
             .setPositiveButton("Allow") { _, _ ->
                 startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
             }
@@ -279,7 +279,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing) return@runOnUiThread
                 AlertDialog.Builder(this)
-                    .setTitle("Update Home Camera?")
+                    .setTitle("Update A.S.D Home Security?")
                     .setMessage("Version ${info.version} of the phone app is ready (you have ${BuildConfig.VERSION_NAME}). " +
                         "The app closes for a few seconds while it updates. Your settings are kept.")
                     .setPositiveButton("Update now") { _, _ -> installUpdate() }
@@ -294,7 +294,7 @@ class MainActivity : AppCompatActivity() {
         if (!Updater.canInstall(this)) {
             AlertDialog.Builder(this)
                 .setTitle("Allow updates")
-                .setMessage("So Home Camera can update itself, turn on \"Allow from this source\" on the next screen, then come back and press Update again.")
+                .setMessage("So A.S.D Home Security can update itself, turn on \"Allow from this source\" on the next screen, then come back and press Update again.")
                 .setPositiveButton("Continue") { _, _ ->
                     startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
                 }
@@ -329,7 +329,7 @@ class MainActivity : AppCompatActivity() {
             "foreground" -> AlertDialog.Builder(this)
                 .setTitle("Allow location all the time?")
                 .setMessage(
-                    "So Home Camera can notice when you come and go, even with the app closed, choose " +
+                    "So A.S.D Home Security can notice when you come and go, even with the app closed, choose " +
                         "\"Allow all the time\" on the next screen. Only \"home\" or \"out\" is sent to your PC, " +
                         "never where you are."
                 )
@@ -383,7 +383,7 @@ class MainActivity : AppCompatActivity() {
                     HomePresence.report(this, true)
                     HomePresence.register(this) { ok, _ ->
                         if (ok) {
-                            locationResult(true, "Home is set. This phone now tells Home Camera when you come and go.")
+                            locationResult(true, "Home is set. This phone now tells A.S.D Home Security when you come and go.")
                         } else {
                             locationResult(
                                 true,

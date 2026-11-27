@@ -136,7 +136,7 @@ object Updater {
                     return@Thread
                 }
                 if (!canInstall(app)) {
-                    report(false, "Version ${info.version} is ready. First allow Home Camera to install updates.")
+                    report(false, "Version ${info.version} is ready. First allow A.S.D Home Security to install updates.")
                     if (!manual) notifyReady(app, info, needsPermission = true)
                     return@Thread
                 }
@@ -166,7 +166,7 @@ object Updater {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "App updates", NotificationManager.IMPORTANCE_DEFAULT)
-                .apply { description = "A new version of Home Camera is ready to install" }
+                .apply { description = "A new version of A.S.D Home Security is ready to install" }
         )
         val open = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -174,14 +174,14 @@ object Updater {
         val pi = PendingIntent.getActivity(context, 77, open,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val text = problem ?: if (needsPermission) {
-            "Tap to allow Home Camera to install its own updates. You only need to do this once."
+            "Tap to allow A.S.D Home Security to install its own updates. You only need to do this once."
         } else {
             "Tap to install it."
         }
         val n = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_camera)
-            .setContentTitle(if (problem != null) "Home Camera couldn't update" else
-                "Home Camera ${info?.version ?: "update"} is ready")
+            .setContentTitle(if (problem != null) "A.S.D Home Security couldn't update" else
+                "A.S.D Home Security ${info?.version ?: "update"} is ready")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
@@ -213,7 +213,7 @@ object Updater {
                     val conflict = status == PackageInstaller.STATUS_FAILURE_CONFLICT ||
                         status == PackageInstaller.STATUS_FAILURE_INCOMPATIBLE
                     val problem = if (conflict) {
-                        "This copy of the app was made before automatic updates. Uninstall Home Camera " +
+                        "This copy of the app was made before automatic updates. Uninstall A.S.D Home Security " +
                             "from the phone, then install the newest HomeCamera.apk from the download page " +
                             "once. Updates are automatic after that."
                     } else {

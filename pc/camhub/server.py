@@ -27,7 +27,7 @@ EDITABLE_MOTION = {
 
 
 def create_app(hub):
-    app = FastAPI(title="Home Camera", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="A.S.D Home Security", docs_url=None, redoc_url=None, openapi_url=None)
     limiter = auth.LoginLimiter()
     config = hub.config
 
@@ -300,7 +300,7 @@ def create_app(hub):
         if len(data) > 64000:
             raise HTTPException(413, "Too much sound in one go")
         if cam.talker.supported is False:
-            raise HTTPException(409, cam.talker.problem or "This camera can't play sound from Home Camera.")
+            raise HTTPException(409, cam.talker.problem or "This camera can't play sound from A.S.D Home Security.")
         try:
             await asyncio.to_thread(cam.talker.put, data)
         except Exception as e:

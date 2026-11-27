@@ -225,7 +225,7 @@ class MonitorService : Service() {
             else -> return
         }
         val problem = e.optString("state") == "problem"
-        val title = e.optString("title").ifEmpty { "Home Camera" }
+        val title = e.optString("title").ifEmpty { "A.S.D Home Security" }
         val message = e.optString("message")
         val n = NotificationCompat.Builder(this, CHANNEL_HEALTH)
             .setSmallIcon(R.drawable.ic_stat_camera)
@@ -249,7 +249,7 @@ class MonitorService : Service() {
             warnedUnreachable = false
             val n = NotificationCompat.Builder(this, CHANNEL_UNREACHABLE)
                 .setSmallIcon(R.drawable.ic_stat_camera)
-                .setContentTitle("Home Camera PC is back")
+                .setContentTitle("A.S.D Home Security PC is back")
                 .setContentText("Your phone can reach the recorder again.")
                 .setAutoCancel(true)
                 .setSilent(true)
@@ -270,12 +270,12 @@ class MonitorService : Service() {
         if (!phoneOnline()) return
         warnedUnreachable = true
         val mins = (System.currentTimeMillis() - lastContact) / 60_000
-        val text = "Your phone hasn't been able to reach Home Camera for $mins minutes, so recordings " +
+        val text = "Your phone hasn't been able to reach A.S.D Home Security for $mins minutes, so recordings " +
             "and alerts may have stopped. The PC may be off, asleep or without internet, or there may " +
             "have been a power cut."
         val n = NotificationCompat.Builder(this, CHANNEL_UNREACHABLE)
             .setSmallIcon(R.drawable.ic_stat_camera)
-            .setContentTitle("Can't reach Home Camera")
+            .setContentTitle("Can't reach A.S.D Home Security")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
@@ -328,7 +328,7 @@ class MonitorService : Service() {
      */
     private fun handleSmart(prefs: Prefs, e: JSONObject) {
         if (e.has("alert") && !e.optBoolean("alert", true)) return
-        val title = e.optString("title").ifEmpty { e.optString("camera_name", "Home Camera") }
+        val title = e.optString("title").ifEmpty { e.optString("camera_name", "A.S.D Home Security") }
         val message = e.optString("message")
         val clip = e.optString("clip")
         val path = e.optString("picture")
@@ -417,7 +417,7 @@ class MonitorService : Service() {
     private fun showSignedOut() {
         val n = NotificationCompat.Builder(this, CHANNEL_MOTION)
             .setSmallIcon(R.drawable.ic_stat_camera)
-            .setContentTitle("Home Camera alerts are off")
+            .setContentTitle("A.S.D Home Security alerts are off")
             .setContentText("Open the app and sign in again to get alerts.")
             .setAutoCancel(true)
             .setContentIntent(openApp(this, null))
@@ -476,7 +476,7 @@ class MonitorService : Service() {
             )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_UNREACHABLE, "Can't reach the PC", NotificationManager.IMPORTANCE_HIGH)
-                    .apply { description = "Your phone hasn't been able to reach the Home Camera PC for a while" }
+                    .apply { description = "Your phone hasn't been able to reach the A.S.D Home Security PC for a while" }
             )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_AI, "AI agent alerts", NotificationManager.IMPORTANCE_HIGH)

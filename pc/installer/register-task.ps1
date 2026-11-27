@@ -1,4 +1,4 @@
-# Called by the installer: makes Home Camera start with Windows (as a background task) and
+# Called by the installer: makes A.S.D Home Security start with Windows (as a background task) and
 # opens its port on the home network. Usage: register-task.ps1 -AppDir <folder> -Port <port>
 param([Parameter(Mandatory)] [string]$AppDir, [int]$Port = 8080)
 $ErrorActionPreference = "Stop"

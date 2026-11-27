@@ -30,12 +30,12 @@ function hourOptions(sel) {
 }
 
 function updateStatusText(s) {
-  if (s.installing) return '<span class="ok-text">Installing now. Home Camera restarts in a minute or two.</span>';
+  if (s.installing) return '<span class="ok-text">Installing now. A.S.D Home Security restarts in a minute or two.</span>';
   if (s.state === 'checking') return '<span class="muted">Checking for updates…</span>';
   if (s.state === 'error') return `<span class="warn-text">⚠ ${esc(s.message)}</span>`;
   if (s.state === 'ready') return `<span class="ok-text">${esc(s.message)}</span>`;
   if (s.state === 'ok') return `<span class="ok-text">✓ ${esc(s.message)}</span>`;
-  return '<span class="muted">Not checked yet. Home Camera checks every few hours.</span>';
+  return '<span class="muted">Not checked yet. A.S.D Home Security checks every few hours.</span>';
 }
 
 function drawUpdates(card, s) {
@@ -43,7 +43,7 @@ function drawUpdates(card, s) {
   const last = (s.history || [])[0];
   const phoneNewer = phone && s.phone_version && s.phone_version !== phone.version;
   card.innerHTML = `<h2>Updates</h2>
-    <p style="margin-top:0">Home Camera updates itself from the download page. Your settings and
+    <p style="margin-top:0">A.S.D Home Security updates itself from the download page. Your settings and
       recordings are kept.</p>
     <p class="up-status">${updateStatusText(s)}${s.checked_at ? ` <span class="muted">Checked ${esc(when(s.checked_at))}.</span>` : ''}</p>
     ${s.last_failed ? `<p class="warn-text">⚠ ${esc(s.last_failed)}</p>` : ''}
@@ -60,7 +60,7 @@ function drawUpdates(card, s) {
         ${s.can_install ? '' : '<br>Only the installed Windows app can update itself.'}</div></div>
     <div class="field"><label for="up-key">GitHub key (only for a private project)</label>
       <input type="password" id="up-key" autocomplete="off" placeholder="${s.has_token ? 'Saved. Paste a new one to replace it.' : 'github_pat_…'}">
-      <div class="hint">Not needed while the Home Camera project on GitHub is public. Only if it's made private again:
+      <div class="hint">Not needed while the A.S.D Home Security project on GitHub is public. Only if it's made private again:
         On github.com go to <b>Settings › Developer settings › Personal access tokens › Fine-grained tokens</b>,
         press <b>Generate new token</b>, choose <b>Only select repositories</b> and pick
         <b>homeawcurity</b>, then under <b>Repository permissions</b> set <b>Contents</b> to <b>Read-only</b>.

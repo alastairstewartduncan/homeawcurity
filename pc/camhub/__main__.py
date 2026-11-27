@@ -173,7 +173,7 @@ def cmd_run(args):
     ssl = {}
     if s.get("https_cert") and s.get("https_key"):
         ssl = {"ssl_certfile": s["https_cert"], "ssl_keyfile": s["https_key"]}
-    log.info("Home Camera running on %s://%s:%s", "https" if ssl else "http", s["host"], s["port"])
+    log.info("A.S.D Home Security running on %s://%s:%s", "https" if ssl else "http", s["host"], s["port"])
     try:
         uvicorn.run(app, host=s["host"], port=int(s["port"]), log_level="warning", access_log=False,
                     log_config=None, **ssl)
@@ -198,7 +198,7 @@ def cmd_set_password(args):
     config.server["password_hash"] = hash_password(p1)
     config.server["secret"] = secrets.token_hex(32)  # signs everyone out
     config.save()
-    print("Password saved. Restart Home Camera for it to take effect.")
+    print("Password saved. Restart A.S.D Home Security for it to take effect.")
 
 
 def cmd_find_stream(args):
@@ -219,7 +219,7 @@ def cmd_find_stream(args):
         cam["main_url"], cam["sub_url"] = main_url, sub_url
         cam["onvif"].update(host=args.ip, username=args.user, password=password)
         config.save()
-        print("\nSaved to the settings. Restart Home Camera to use it.")
+        print("\nSaved to the settings. Restart A.S.D Home Security to use it.")
         return
     print("\nPut these in config.json:")
     print(f'  "main_url": "{main_url}"')
@@ -299,7 +299,7 @@ def cmd_setup(args):
             report("Camera found and saved.")
         else:
             report("The camera's video wasn't found. Check its IP address and password in")
-            report("Home Camera > Settings > Cameras, then press Find and save.")
+            report("A.S.D Home Security > Settings > Cameras, then press Find and save.")
             code = 3
     config.save()
     finish(code)
@@ -309,7 +309,7 @@ def main():
     p = argparse.ArgumentParser(prog="camhub")
     p.add_argument("--config", default=DEFAULT_CONFIG)
     from . import __version__
-    p.add_argument("--version", action="version", version=f"Home Camera {__version__}")
+    p.add_argument("--version", action="version", version=f"A.S.D Home Security {__version__}")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("run")
     sub.add_parser("set-password")

@@ -983,7 +983,7 @@ class SmartHub:
         if img is None:
             raise ValueError("That file isn't a picture this PC can read")
         if not self.engine.available:
-            raise ValueError("Face recognition isn't installed on this PC. Reinstall Home Camera.")
+            raise ValueError("Face recognition isn't installed on this PC. Reinstall A.S.D Home Security.")
         face = self.engine.largest_face(img)
         if face is None or face["size"] < facemod.MIN_FACE_PX:
             raise ValueError("No clear face found in that picture. Try one where the face is larger and facing the camera.")

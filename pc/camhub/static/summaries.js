@@ -134,7 +134,7 @@
 
   player.querySelector('.ns-close').addEventListener('click', close);
   player.querySelector('.ns-cast').addEventListener('click', () => {
-    if (current) castTo('summary', current.date, `Home Camera: ${nightLabel(current.date).toLowerCase()}`);
+    if (current) castTo('summary', current.date, `A.S.D Home Security: ${nightLabel(current.date).toLowerCase()}`);
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !player.classList.contains('hidden')) close(); });
 
@@ -198,7 +198,7 @@
         if (!src) { toast('No camera to show'); return; }
         path = src.live; live = true; title = title || src.name;
       }
-      window.HomeCamera.castMedia(location.origin + path, title || 'Home Camera', live);
+      window.HomeCamera.castMedia(location.origin + path, title || 'A.S.D Home Security', live);
     } catch (e) { toast('Cast: ' + e.message); }
   };
 
@@ -210,7 +210,7 @@
     }
     const box = el(`<div class="player ns-help"><div class="card" style="max-width:560px;margin:auto">
       <h2>Watch on TV</h2>
-      <p><b>Chromecast or Google TV:</b> in the Home Camera phone app, press <b>📺 TV</b> on the Live tab and pick your TV.</p>
+      <p><b>Chromecast or Google TV:</b> in the A.S.D Home Security phone app, press <b>📺 TV</b> on the Live tab and pick your TV.</p>
       <p><b>Smart TV with a web browser</b> (Samsung, LG, Fire TV and others): open the TV's browser, go to
         <code class="u"></code> and sign in once. Every camera shows full screen; use the remote's arrows and OK to pick one.</p>
       <p><b>From this computer:</b> open <a class="tvlink" href="/tv" target="_blank">the TV page</a> in Google Chrome,

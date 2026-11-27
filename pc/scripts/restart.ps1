@@ -1,4 +1,4 @@
-# Restarts Home Camera, for example after editing config.json. Run with PowerShell.
+# Restarts A.S.D Home Security, for example after editing config.json. Run with PowerShell.
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
@@ -10,5 +10,5 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Get-Process ffmpeg -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-ScheduledTask -TaskName "Home Camera"
-Write-Host "Home Camera restarted."
+Write-Host "A.S.D Home Security restarted."
 Start-Sleep 2

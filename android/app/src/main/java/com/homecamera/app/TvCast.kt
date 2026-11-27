@@ -114,7 +114,7 @@ class TvCast(private val activity: AppCompatActivity) {
         }
         val meta = MediaMetadata(MediaMetadata.MEDIA_TYPE_GENERIC).apply {
             putString(MediaMetadata.KEY_TITLE, m.title)
-            putString(MediaMetadata.KEY_SUBTITLE, "Home Camera")
+            putString(MediaMetadata.KEY_SUBTITLE, "A.S.D Home Security")
         }
         val info = MediaInfo.Builder(m.url)
             .setStreamType(if (m.live) MediaInfo.STREAM_TYPE_LIVE else MediaInfo.STREAM_TYPE_BUFFERED)

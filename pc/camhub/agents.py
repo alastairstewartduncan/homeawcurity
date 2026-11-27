@@ -299,7 +299,7 @@ class AgentRunner:
     def build_prompt(self, agent, cam_name, trigger, event, has_picture):
         skills = [s for s in (self.skill(i) for i in agent.get("skills", [])) if s]
         system = [
-            f'You are "{agent["name"]}", an AI agent inside Home Camera, a home security camera system '
+            f'You are "{agent["name"]}", an AI agent inside A.S.D Home Security, a home security camera system '
             "on the owner's own PC. You are given a picture from a security camera and what just happened.",
             "Your goal, in the owner's words:\n" + (agent.get("goal") or "Describe what you see."),
         ]
@@ -438,7 +438,7 @@ class AgentRunner:
                      + json.dumps(skills) + "\nCameras: " + json.dumps(cams)
                      + '\nTriggers: "person" = a person is detected, "motion" = any recording starts, '
                        '"clip_saved" = a recording finishes, "schedule" = every N minutes.')
-        system = ("You help a home owner set up AI agents for their home security cameras (Home Camera). "
+        system = ("You help a home owner set up AI agents for their home security cameras (A.S.D Home Security). "
                   "An agent is run on camera events, gets a camera picture, and decides whether to alert the "
                   "owner's phone. A skill is reusable know-how an agent can use. Write in plain, friendly English. "
                   "Never include anything about identifying people by face or name. "

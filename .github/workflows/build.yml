@@ -58,7 +58,7 @@ jobs:
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk HomeCamera.apk
           gh release view latest >/dev/null 2>&1 || \
-            gh release create latest --title "Home Camera (latest build)" \
+            gh release create latest --title "A.S.D Home Security (latest build)" \
               --notes "Android app built from the newest code. Download HomeCamera.apk onto your phone and open it."
           gh release upload latest HomeCamera.apk --clobber
           # Tells the PC there's a new phone app (only for builds signed with the lasting key,
@@ -68,7 +68,7 @@ jobs:
               "$(sha256sum HomeCamera.apk | cut -d' ' -f1)" "$(stat -c%s HomeCamera.apk)" > android.json
             gh release upload latest android.json --clobber
           fi
-          gh release edit latest --title "Home Camera $APP_VERSION" --notes "$(printf 'Newest version: **%s**, built %s.\n\n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.\n- **HomeCamera.apk**: open on your Android phone.\n\nThe version in use is shown in Home Camera under Settings > About.' "$APP_VERSION" "$(date -u '+%d %b %Y %H:%M UTC')")"
+          gh release edit latest --title "A.S.D Home Security $APP_VERSION" --notes "$(printf 'Newest version: **%s**, built %s.\n\n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.\n- **HomeCamera.apk**: open on your Android phone.\n\nThe version in use is shown in A.S.D Home Security under Settings > About.' "$APP_VERSION" "$(date -u '+%d %b %Y %H:%M UTC')")"
 
   windows-installer:
     runs-on: windows-latest
@@ -123,7 +123,7 @@ jobs:
       - name: Check camhub.exe runs
         run: |
           $v = (dist/camhub/camhub.exe --version | Out-String).Trim()
-          if ($v -ne "Home Camera $env:APP_VERSION") { throw "camhub.exe says '$v', expected $env:APP_VERSION" }
+          if ($v -ne "A.S.D Home Security $env:APP_VERSION") { throw "camhub.exe says '$v', expected $env:APP_VERSION" }
           '{"password": "ci-password-123", "storage": "C:/ci-recordings"}' | Set-Content answers.json
           dist/camhub/camhub.exe --config "$PWD/ci/config.json" setup --answers answers.json
           if ($LASTEXITCODE -ne 0) { throw "setup failed: $LASTEXITCODE" }
@@ -212,7 +212,7 @@ jobs:
           $r = Invoke-WebRequest http://localhost:8080/api/login -Method Post -ContentType "application/json" -Body '{"password":"ci-password-123"}' -UseBasicParsing -SkipHttpErrorCheck
           Write-Host "Sign in returned $($r.StatusCode)"
           Get-Content "$env:ProgramData\HomeCamera\logs\camhub.log" -ErrorAction SilentlyContinue
-          if (-not $ok -or $r.StatusCode -ne 200) { throw "installed Home Camera is not working" }
+          if (-not $ok -or $r.StatusCode -ne 200) { throw "installed A.S.D Home Security is not working" }
 
           # Automatic update: the same way camhub.exe starts an installer it downloaded
           # (a one-off task, so it survives camhub.exe being stopped), install over the top.
@@ -230,8 +230,8 @@ jobs:
             try { if ((Invoke-WebRequest http://localhost:8080/login -UseBasicParsing).StatusCode -eq 200) { $ok = $true; break } } catch {}
           }
           $r = Invoke-WebRequest http://localhost:8080/api/login -Method Post -ContentType "application/json" -Body '{"password":"ci-password-123"}' -UseBasicParsing -SkipHttpErrorCheck
-          if (-not $ok -or $r.StatusCode -ne 200) { throw "Home Camera didn't come back after the automatic update (sign in $($r.StatusCode))" }
-          Write-Host "Automatic update installed and Home Camera came back with the same password."
+          if (-not $ok -or $r.StatusCode -ne 200) { throw "A.S.D Home Security didn't come back after the automatic update (sign in $($r.StatusCode))" }
+          Write-Host "Automatic update installed and A.S.D Home Security came back with the same password."
           schtasks /Delete /F /TN "Home Camera Update" | Out-Null
           $u = Start-Process "${env:ProgramFiles}\Home Camera\unins000.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -PassThru
           if (-not $u.WaitForExit(300000)) { throw "uninstall did not finish in 5 minutes" }
@@ -254,15 +254,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view latest *> $null
-          if ($LASTEXITCODE -ne 0) { gh release create latest --title "Home Camera (latest build)" --notes "Newest build." }
+          if ($LASTEXITCODE -ne 0) { gh release create latest --title "A.S.D Home Security (latest build)" --notes "Newest build." }
           gh release upload latest installer/output/HomeCameraSetup.exe --clobber
           if ($LASTEXITCODE -ne 0) { throw "upload failed" }
-          # Read by Home Camera's automatic updates: the newest version and the installer's checksum.
+          # Read by A.S.D Home Security's automatic updates: the newest version and the installer's checksum.
           $exe = Get-Item installer/output/HomeCameraSetup.exe
           $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
           "{`"version`": `"$env:APP_VERSION`", `"sha256`": `"$hash`", `"size`": $($exe.Length)}" | Set-Content -NoNewline windows.json
           gh release upload latest windows.json --clobber
           if ($LASTEXITCODE -ne 0) { throw "upload of windows.json failed" }
           $built = (Get-Date).ToUniversalTime().ToString("dd MMM yyyy HH:mm 'UTC'")
-          $notes = "Newest version: **$env:APP_VERSION**, built $built.`n`n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.`n- **HomeCamera.apk**: open on your Android phone.`n`nThe version in use is shown in Home Camera under Settings > About."
-          gh release edit latest --title "Home Camera $env:APP_VERSION" --notes $notes
+          $notes = "Newest version: **$env:APP_VERSION**, built $built.`n`n- **HomeCameraSetup.exe**: run on the Windows PC. Installing over an older version keeps your settings and recordings.`n- **HomeCamera.apk**: open on your Android phone.`n`nThe version in use is shown in A.S.D Home Security under Settings > About."
+          gh release edit latest --title "A.S.D Home Security $env:APP_VERSION" --notes $notes

@@ -209,7 +209,7 @@ class TalkSession:
             raise RtspError(f"The camera answered {code} when asked to talk")
         found = find_backchannel(sdp, c.url)
         if not found:
-            raise RtspError("This camera doesn't accept sound from Home Camera")
+            raise RtspError("This camera doesn't accept sound from A.S.D Home Security")
         ctl, self.pt, codec = found
         self.encode = ulaw_encode if codec == "PCMU" else alaw_encode
         code, h, _ = c.request("SETUP", ctl, {"Transport": "RTP/AVP/TCP;unicast;interleaved=0-1", "Require": REQUIRE})

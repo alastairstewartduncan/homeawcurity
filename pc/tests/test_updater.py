@@ -143,7 +143,7 @@ def test_records_a_finished_update(tmp_path):
     up, _ = make(tmp_path, FakeGitHub())
     up.check()
     up.install()
-    # Home Camera restarts as the new version.
+    # A.S.D Home Security restarts as the new version.
     up2, _ = make(tmp_path, FakeGitHub(), current="1.0.50")
     st = up2.status()
     assert st["history"][0]["from"] == "1.0.40" and st["history"][0]["to"] == "1.0.50"

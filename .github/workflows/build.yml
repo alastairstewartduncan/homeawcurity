@@ -100,6 +100,9 @@ jobs:
           $zoo = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
           Invoke-WebRequest "$zoo/face_detection_yunet/face_detection_yunet_2023mar.onnx" -OutFile models/face_detection_yunet_2023mar.onnx
           Invoke-WebRequest "$zoo/face_recognition_sface/face_recognition_sface_2021dec.onnx" -OutFile models/face_recognition_sface_2021dec.onnx
+          # Knowing people from behind (build, height, clothes): the block-quantised YoutuReID model.
+          # The plain int8 file is smaller but far less accurate in OpenCV, so don't swap it in.
+          Invoke-WebRequest "$zoo/person_reid_youtureid/person_reid_youtu_2021nov_int8bq.onnx" -OutFile models/person_reid_youtu_2021nov_int8bq.onnx
           Get-ChildItem models
 
       - name: Stamp the version
@@ -174,6 +177,8 @@ jobs:
               $smart = Invoke-RestMethod http://localhost:8080/api/smart -Headers $h
               "Face recognition ready: $($smart.faces_available)"
               if (-not $smart.faces_available) { throw "face recognition models did not load in camhub.exe" }
+              "Body recognition ready: $($smart.bodies_available)"
+              if (-not $smart.bodies_available) { throw "body recognition model did not load in camhub.exe" }
             }
           } finally {
             Stop-Process $p -Force

@@ -1,7 +1,8 @@
 fastapi>=0.110,<1
 uvicorn>=0.29
 # OpenCV 5 dropped the model format used for person detection, so stay on 4.x.
-opencv-python-headless>=4.9,<5
+# 4.11 or newer reads the body recognition model (block-quantised ONNX).
+opencv-python-headless>=4.11,<5
 numpy>=1.26
 # Away-from-home access: makes this PC's own certificate (nothing is sent anywhere).
 cryptography>=42

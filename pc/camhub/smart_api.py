@@ -1,4 +1,4 @@
-"""Web routes for smart alerts: family faces, your cars, parcels, lines and loitering."""
+"""Web routes for smart alerts: family faces and bodies, visitors, your cars, parcels, lines and loitering."""
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 
@@ -80,6 +80,32 @@ def add_smart_routes(app, hub):
     @app.delete("/api/smart/people/{pid}/photos/{fid}")
     def delete_photo(pid: str, fid: str):
         if not smart.store.remove_sample("people", pid, fid):
+            raise HTTPException(404, "Not found")
+        return smart.state()
+
+    @app.delete("/api/smart/people/{pid}/bodies/{bid}")
+    def delete_body(pid: str, bid: str):
+        if not smart.store.remove_sample("people", pid, bid, key="bodies"):
+            raise HTTPException(404, "Not found")
+        return smart.state()
+
+    # ---- visitors: people you haven't named who keep coming back ----
+
+    @app.put("/api/smart/visitors/{vid}")
+    async def update_visitor(vid: str, request: Request):
+        body = await body_of(request)
+        run(smart.visitors.update, vid, body.get("label"), body.get("regular"))
+        return smart.state()
+
+    @app.post("/api/smart/visitors/{vid}/family")
+    async def visitor_is_family(vid: str, request: Request):
+        body = await body_of(request)
+        run(smart.visitors.make_family, vid, body.get("id"), body.get("name"))
+        return smart.state()
+
+    @app.delete("/api/smart/visitors/{vid}")
+    def forget_visitor(vid: str):
+        if not smart.visitors.forget(vid):
             raise HTTPException(404, "Not found")
         return smart.state()
 

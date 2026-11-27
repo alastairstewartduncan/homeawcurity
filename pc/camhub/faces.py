@@ -234,6 +234,7 @@ class KnownStore:
     SEEN_KEEP = 60
     MAX_FACES = 30   # per person
     MAX_SAMPLES = 20  # per car
+    MAX_BODIES = 40  # per person: the newest pictures of their build and clothes
 
     def __init__(self, folder):
         self.folder = folder
@@ -246,6 +247,9 @@ class KnownStore:
         self.seen = self._read("seen.json", [])
         if not isinstance(self.seen, list):
             self.seen = []
+        for p in self.known["people"]:
+            p.setdefault("bodies", [])
+        self._body_cache = {}    # body picture id -> its numbers, unpacked
 
     def _read(self, name, default):
         try:
@@ -305,7 +309,10 @@ class KnownStore:
         with self._lock:
             return {
                 "people": [{"id": p["id"], "name": p["name"],
-                            "faces": [{"id": f["id"], "pic": f.get("pic")} for f in p["faces"]]}
+                            "faces": [{"id": f["id"], "pic": f.get("pic")} for f in p["faces"]],
+                            "bodies": [{"id": b["id"], "pic": b.get("pic"), "night": b.get("night"),
+                                        "time": b.get("time")} for b in p.get("bodies", [])],
+                            "height": self.person_height(p)}
                            for p in self.known["people"]],
                 "cars": [{"id": c["id"], "name": c["name"],
                           "samples": [{"id": s["id"], "pic": s.get("pic"), "night": s["sig"].get("night")}
@@ -323,7 +330,7 @@ class KnownStore:
     def add_person(self, name):
         name = clean_name(name)
         with self._lock:
-            p = {"id": new_id("per_"), "name": name, "faces": []}
+            p = {"id": new_id("per_"), "name": name, "faces": [], "bodies": []}
             self.known["people"].append(p)
             self.save()
             return p
@@ -350,18 +357,18 @@ class KnownStore:
             x = self._find(kind, item_id)
             if not x:
                 return False
-            for s in x.get("faces", []) + x.get("samples", []):
+            for s in x.get("faces", []) + x.get("samples", []) + x.get("bodies", []):
                 self._drop_pic(s.get("pic"))
             self.known[kind].remove(x)
             self.save()
             return True
 
-    def remove_sample(self, kind, item_id, sample_id):
+    def remove_sample(self, kind, item_id, sample_id, key=None):
         with self._lock:
             x = self._find(kind, item_id)
             if not x:
                 return False
-            key = "faces" if kind == "people" else "samples"
+            key = key or ("faces" if kind == "people" else "samples")
             for s in x[key]:
                 if s["id"] == sample_id:
                     self._drop_pic(s.get("pic"))
@@ -420,6 +427,84 @@ class KnownStore:
                     if sim > best_sim:
                         best, best_sim = c, sim
         return (best if best_sim >= threshold else None), best_sim
+
+    # ---- bodies: knowing family from behind ----
+
+    def add_body(self, person_id, obs, pic=None, when=None):
+        """Keeps a picture of someone's build and clothes (obs from bodies.BodyEngine.describe,
+        with "height" and "pace" added). Skips it when it's nearly the same as one already kept."""
+        from . import bodies
+        feat = obs.get("feature") if obs else None
+        if feat is None:
+            return None
+        feat = unit(feat)
+        with self._lock:
+            p = self._find("people", person_id)
+            if not p:
+                return None
+            have = [self._body_feature(b) for b in p["bodies"]]
+            have = [h for h in have if h is not None]
+            if have and float(np.max(np.float32(have) @ feat)) > 0.97:
+                return None
+            b = {"id": new_id("b_"), "feature": bodies.pack(feat), "clothes": obs.get("clothes"),
+                 "night": bool(obs.get("night")), "height": obs.get("height"), "pace": obs.get("pace"),
+                 "time": when or time.strftime("%Y-%m-%dT%H:%M:%S"),
+                 "pic": pic or self.put_pic(obs.get("crop"), "b")}
+            p["bodies"].append(b)
+            while len(p["bodies"]) > self.MAX_BODIES:
+                old = p["bodies"].pop(0)
+                self._body_cache.pop(old["id"], None)
+                self._drop_pic(old.get("pic"))
+            self.save()
+            return b
+
+    def _body_feature(self, b):
+        f = self._body_cache.get(b["id"])
+        if f is None:
+            from . import bodies
+            f = bodies.unpack(b.get("feature"))
+            if f is None:
+                return None
+            self._body_cache[b["id"]] = f
+        return f
+
+    def body_samples(self, p):
+        out = []
+        for b in p.get("bodies", []):
+            f = self._body_feature(b)
+            if f is not None:
+                out.append({"feature": f, "clothes": b.get("clothes"), "night": b.get("night")})
+        return out
+
+    @staticmethod
+    def _median(p, key):
+        vals = [b[key] for b in p.get("bodies", []) if b.get(key)]
+        return round(float(np.median(vals)), 3) if vals else None
+
+    def person_height(self, p):
+        return self._median(p, "height")
+
+    def match_body(self, obs, threshold):
+        """(person, likeness, next best likeness) for the family member whose build and clothes
+        are most like obs. person is None if nobody is close enough."""
+        from . import bodies
+        scores = []
+        with self._lock:
+            for p in self.known["people"]:
+                samples = self.body_samples(p)
+                if samples:
+                    scores.append((bodies.likeness(obs, samples, self._median(p, "height"),
+                                                   self._median(p, "pace")), p))
+        if not scores:
+            return None, 0.0, 0.0
+        scores.sort(key=lambda s: -s[0])
+        best, p = scores[0]
+        second = scores[1][0] if len(scores) > 1 else 0.0
+        return (p if best >= threshold else None), best, second
+
+    @property
+    def has_bodies(self):
+        return any(p.get("bodies") for p in self.known["people"])
 
     @property
     def has_people(self):

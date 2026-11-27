@@ -1,4 +1,4 @@
-/* The Smart tab: family faces, your cars, parcels, lines and loitering. */
+/* The Smart tab: family faces and bodies, visitors, your cars, parcels, lines and loitering. */
 .smart-card h3 { margin-top: 18px; }
 .smart-card .small, .clip-seen { font-size: 12px; }
 .smart-opts { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 6px 0; }
@@ -43,3 +43,28 @@
 }
 .seen-grid > p { grid-column: 1 / -1; margin: 0; }
 .parcel-opts { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.thumb-x .nopic, .visitor-pic.nopic { display: flex; align-items: center; justify-content: center; width: 54px; height: 54px;
+  border-radius: 8px; background: var(--panel-2); color: var(--muted); font-size: 22px; }
+.thumbs.bodies { flex-basis: 100%; padding-left: 118px; order: 10; }
+.thumb-x.body img { width: 36px; height: 72px; }
+.visitors { display: flex; flex-direction: column; gap: 12px; }
+.visitor { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--panel-2); }
+.visitor.returning { border-color: var(--warn); }
+.visitor-head { display: flex; gap: 10px; align-items: center; }
+.visitor-pic { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; background: #000; flex: none; }
+.visitor-info { flex: 1; min-width: 0; }
+.badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); margin-left: 4px; }
+.badge.warn { border-color: var(--warn); color: var(--warn); }
+.visit-strip { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; scroll-snap-type: x proximity; }
+.visit-tile { flex: none; width: 168px; display: flex; flex-direction: column; gap: 4px; scroll-snap-align: start; }
+.visit-tile img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: #000; }
+.visit-tile .watch { font-size: 12px; padding: 4px 8px; }
+.visitor-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.visitor-actions .vi-label { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--text); min-width: 0; width: 180px; }
+.property-status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .thumbs.bodies { padding-left: 0; }
+  .visit-tile { width: 140px; }
+  .visitor-actions .vi-label { width: 100%; }
+}

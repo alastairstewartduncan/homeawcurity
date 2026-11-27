@@ -219,6 +219,20 @@ Everything here runs on the PC. No pictures are sent anywhere.
   "Faces seen lately"). Turn on *Recognise faces* and "person seen" alerts become **stranger**
   alerts, with no alert for the people you've named. If no face can be seen, you choose whether
   it still alerts.
+- **Known from behind.** Turn on *Also know them from behind or in the dark* and family are
+  also recognised by build, height, clothes and walk (OpenCV Zoo's YoutuReID model, on the PC).
+  It learns by itself: each time someone's face is recognised it keeps a picture of their build
+  and clothes. A body match only replaces "person seen, face not visible"; a clear face it
+  doesn't know is always a stranger. Height needs the camera kept still for a while to learn how
+  tall people look at each spot.
+- **Visitors.** Turn on *Remember visitors* and people you haven't named are remembered by face,
+  or by build, height and clothes when no face was seen. Someone back 3 times in 7 days (you can
+  change both) gives a **returning stranger** alert, and the Smart tab shows their visits side
+  by side with the clips. Mark someone as a regular (the postman) to stop alerts, say who they
+  are to make them family, or forget them. Visitors not seen for 30 days are forgotten.
+- **Our property.** Draw your drive, garden and doorstep on each camera. Bodies and visitors are
+  only learnt from people standing there, never from anyone in a privacy area or ignore zone,
+  which keeps neighbours and people on the pavement out of it (UK GDPR).
 - **Your cars.** Park your car in view and press *Add car* (add a night picture too). Turn on
   *Alert when an unknown vehicle stops* to hear about vehicles that stop and aren't yours. Cars
   driving past don't count. Cars are told apart by colour, so a car just like yours can fool it.

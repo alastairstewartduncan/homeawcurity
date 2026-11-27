@@ -26,6 +26,7 @@ import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -83,7 +84,12 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        if (prefs.serverUrl.isEmpty()) showSetup(null) else showWeb(intent.getStringExtra(MonitorService.EXTRA_CLIP))
+        val saved = awayAddressProblem(prefs.homeAddress)
+        when {
+            prefs.serverUrl.isEmpty() -> showSetup(null)
+            saved != null -> showSetup(saved) // the away address was typed in before this check existed
+            else -> showWeb(intent.getStringExtra(MonitorService.EXTRA_CLIP))
+        }
         if (intent.getBooleanExtra(Updater.EXTRA_INSTALL, false)) installUpdate()
     }
 
@@ -126,8 +132,10 @@ class MainActivity : AppCompatActivity() {
         box.addView(text("A.S.D", 30f, "#E9EEF7").apply { typeface = android.graphics.Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, 0) })
         box.addView(text("HOME SECURITY", 12f, "#60A5FA").apply { letterSpacing = 0.25f })
         box.addView(text(
-            "Enter the address of the PC running A.S.D Home Security. At home that's its local address, " +
-                "for example 192.168.1.20:8080. Away from home use the address you set up on your router.",
+            "While you're on your home Wi-Fi, enter the PC's home address, for example 192.168.1.20:8080 " +
+                "(shown in the viewer on the PC). To use the app away from home, sign in here at home, then " +
+                "go to Settings > Away from home and press Set up this phone. After that the app finds the " +
+                "PC by itself wherever you are: you never type the away address.",
             15f, "#8E9BB3"
         ))
         if (problem != null) box.addView(text(problem, 15f, "#FF6B6B"))
@@ -164,11 +172,29 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "That doesn't look like an address", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
+                awayAddressProblem(url)?.let {
+                    showSetup(it)
+                    return@setOnClickListener
+                }
                 prefs.serverUrl = url
                 showWeb(null)
             }
         })
         root.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+    }
+
+    /**
+     * The encrypted away port only answers phones that were set up at home, so typing it here
+     * can't work (it used to give a blank screen). Explain instead.
+     */
+    private fun awayAddressProblem(url: String): String? {
+        if (prefs.paired || url.isEmpty()) return null
+        val u = Uri.parse(url)
+        if (u.scheme != "https" && u.port != 8443) return null
+        return "$url is the away-from-home address. It only works for a phone that has been set up, " +
+            "so it can't be typed in here. On your home Wi-Fi, enter the PC's home address instead " +
+            "(for example 192.168.1.20:8080), sign in, then go to Settings > Away from home and press " +
+            "Set up this phone. From then on the app connects by itself when you're out."
     }
 
     // ---- the recorder's pages -------------------------------------------------
@@ -217,7 +243,31 @@ class MainActivity : AppCompatActivity() {
             allowContentAccess = false
         }
         w.addJavascriptInterface(Bridge(), "HomeCamera")
+        val loadingUrl = prefs.serverUrl
+        var pageArrived = false
+        // A PC that accepts the connection but never answers left a blank screen. Say so instead.
+        root.postDelayed({
+            if (web === w && !pageArrived) {
+                showSetup("$loadingUrl didn't answer. Check the PC is on and that this is its home address " +
+                    "(for example 192.168.1.20:8080).")
+            }
+        }, 25_000)
         w.webViewClient = object : WebViewClient() {
+            override fun onPageCommitVisible(view: WebView, url: String) {
+                pageArrived = true
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                pageArrived = true
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+                // The away port answers "not found" to a phone it doesn't know.
+                if (request.isForMainFrame && response.statusCode == 404 && request.url.scheme == "https" && !prefs.paired) {
+                    showSetup(awayAddressProblem(request.url.toString()))
+                }
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 // Stay on the recorder; open anything else in the browser.
                 val u = request.url
@@ -233,7 +283,10 @@ class MainActivity : AppCompatActivity() {
                     handler.proceed()
                 } else {
                     handler.cancel()
-                    showSetup("The connection to ${error.url} wasn't safe (its certificate isn't your PC's), so it was stopped.")
+                    showSetup(
+                        if (!prefs.paired) awayAddressProblem(error.url ?: "https://")
+                        else "The connection to ${error.url} wasn't safe (its certificate isn't your PC's), so it was stopped."
+                    )
                 }
             }
 

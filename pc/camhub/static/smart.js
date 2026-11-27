@@ -326,11 +326,11 @@
     if (!data.cars.length) cars.innerHTML = '<p class="muted">No cars yet.</p>';
     for (const c of data.cars) {
       const row = h(`<div class="known-row">
-        <b class="kname">${esc(c.name)}</b>
+        <b class="kname">${esc(c.name)}${c.plate ? `<br><span class="plate">${esc(c.plate)}</span>` : ''}</b>
         <span class="thumbs">${c.samples.map(x => `<span class="thumb-x" title="${x.night ? 'Night picture' : 'Daytime picture'}">
           <img src="${pic(x.pic)}" alt=""><i>${x.night ? '☾' : '☀'}</i>
           <button data-s="${esc(x.id)}" title="Remove this picture" aria-label="Remove this picture">✕</button></span>`).join('')}</span>
-        <button class="more">＋ Picture from live</button><button class="ren">Rename</button><button class="danger del">Remove</button></div>`);
+        <button class="more">＋ Picture from live</button><button class="pl">${c.plate ? 'Change plate' : 'Add number plate'}</button><button class="ren">Rename</button><button class="danger del">Remove</button></div>`);
       q('.more', row).addEventListener('click', async (ev) => {
         const done = busy(ev.target, 'Looking…');
         try { await send(`/api/smart/cars/${c.id}/from_live`, 'POST', {camera: q('.c-cam', card).value}); toast('Picture added'); render(); }
@@ -342,6 +342,11 @@
       q('.ren', row).addEventListener('click', async () => {
         const name = prompt('New name', c.name); if (!name) return;
         try { await send(`/api/smart/cars/${c.id}`, 'PUT', {name}); render(); } catch (e) { toast(e.message); }
+      });
+      q('.pl', row).addEventListener('click', async () => {
+        const plate = prompt(`${c.name}'s number plate, so the Who's been log knows it (leave empty to remove)`, c.plate || '');
+        if (plate == null) return;
+        try { await send(`/api/smart/cars/${c.id}`, 'PUT', {plate}); render(); } catch (e) { toast(e.message); }
       });
       q('.del', row).addEventListener('click', async () => {
         if (!confirm(`Forget ${c.name}?`)) return;
@@ -550,7 +555,7 @@
     function lists() {
       const P = q('.property-status', card);
       P.innerHTML = rules.property.length ? '<span>Drawn. Press Save to keep it.</span> <button class="clear-prop">Clear</button>'
-        : '<span class="muted">Not drawn: the whole picture counts. Choose Our property above and draw it.</span>';
+        : '<span class="muted">Not drawn: the whole picture counts, and nothing is put in the Who\'s been log. Choose Our property above and draw it.</span>';
       const cp = q('.clear-prop', P);
       if (cp) cp.addEventListener('click', () => { rules.property = []; lists(); draw(); });
       const L = q('.lines', card); L.innerHTML = rules.lines.length ? '' : '<span class="muted">No lines yet. Choose Line above and draw one.</span>';

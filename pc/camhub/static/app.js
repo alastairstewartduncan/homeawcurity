@@ -59,6 +59,9 @@ function showTab(name) {
 }
 $$('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 $('#logout').addEventListener('click', async () => {
+  // A phone set up for away access forgets its key, and the PC forgets the phone.
+  const rm = window.HomeCamera && window.HomeCamera.remoteInfo ? JSON.parse(window.HomeCamera.remoteInfo()) : null;
+  if (rm && rm.paired) await fetch('/api/remote/devices/self', {method: 'DELETE'}).catch(() => {});
   await fetch('/api/logout', {method: 'POST'});
   if (window.HomeCamera && window.HomeCamera.signOut) window.HomeCamera.signOut();
   location.href = '/login';
@@ -534,6 +537,7 @@ async function loadSettings() {
   if (window.backupCard) wrap.appendChild(await backupCard());
   if (window.summaryCard) wrap.appendChild(await window.summaryCard());
   if (window.tvCard) wrap.appendChild(window.tvCard());
+  if (window.remoteCard) wrap.appendChild(await window.remoteCard());
   if (window.updatesCard) wrap.appendChild(await window.updatesCard());
   wrap.appendChild(aboutCard());
 }

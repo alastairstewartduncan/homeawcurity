@@ -38,6 +38,9 @@ def create_app(hub):
         return request.cookies.get(COOKIE)
 
     def authed(request):
+        # A paired phone on the encrypted away-access port (checked by remote.Gate).
+        if request.scope.get("camhub.device"):
+            return True
         return auth.check_token(config.server["secret"], token_of(request) or "")
 
     @app.middleware("http")
@@ -126,6 +129,10 @@ def create_app(hub):
     if getattr(hub, "presence", None) and getattr(hub, "health", None):
         from .alerts_api import add_alert_routes
         add_alert_routes(app, hub)
+    # Away-from-home access for paired phones (remote.py).
+    if getattr(hub, "remote", None) is not None:
+        from .remote import add_remote_routes
+        add_remote_routes(app, hub)
     # Smart home links: lights, sirens and Alexa routines (homelinks.py).
     if getattr(hub, "home_links", None):
         from .homelinks import add_home_link_routes

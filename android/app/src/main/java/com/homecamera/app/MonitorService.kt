@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
@@ -42,9 +43,30 @@ class MonitorService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** Wi-Fi to mobile data or back: reconnect, choosing the home or away address again. */
+    private val networkWatch = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = switchedNetwork()
+        override fun onLost(network: Network) = switchedNetwork()
+    }
+    @Volatile private var lastNetwork: Network? = null
+
+    private fun switchedNetwork() {
+        val now = try { getSystemService(ConnectivityManager::class.java).activeNetwork } catch (_: Exception) { null }
+        if (now == lastNetwork) return
+        lastNetwork = now
+        Remote.forget()
+        if (Prefs(this).paired) Thread { connection?.disconnect() }.start()
+    }
+
     override fun onCreate() {
         super.onCreate()
         createChannels(this)
+        try {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            lastNetwork = cm.activeNetwork
+            cm.registerDefaultNetworkCallback(networkWatch)
+        } catch (_: Exception) {
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -66,6 +88,10 @@ class MonitorService : Service() {
     }
 
     override fun onDestroy() {
+        try {
+            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkWatch)
+        } catch (_: Exception) {
+        }
         running = false
         connection?.disconnect()
         worker?.interrupt()
@@ -92,6 +118,9 @@ class MonitorService : Service() {
                 stopSelf()
                 return
             }
+            // Set up for away access: pick the home or the away address first.
+            if (prefs.paired) Remote.ensure(prefs)
+            if (prefs.serverUrl.isEmpty() || prefs.token.isEmpty()) continue
             try {
                 val url = URL("${prefs.serverUrl}/api/events?since=${prefs.lastEventId}")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -101,6 +130,11 @@ class MonitorService : Service() {
                     readTimeout = 60_000 // the server sends a keep-alive every 20 s
                 }
                 connection = conn
+                if (prefs.paired && conn.responseCode == 404) {
+                    // The PC may have removed this phone: checking again finds out (and unpairs).
+                    Remote.choose(prefs)
+                    throw IllegalStateException("The PC didn't accept this phone's key")
+                }
                 if (conn.responseCode == 401) {
                     showSignedOut()
                     prefs.token = ""
@@ -127,6 +161,7 @@ class MonitorService : Service() {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Event stream: ${e.message}")
+                Remote.forget()
             } finally {
                 connection?.disconnect()
                 connection = null

@@ -22,11 +22,22 @@ Everything runs on this PC, on the pictures the recorder already looks at.
   standing on it. People in privacy areas or ignore zones are never used.
 - Sightings log (sightings.py): every person and number plate (plates.py) seen on your
   property, with the best picture and the clip, to search later. Needs the property drawn.
+- Learning as you go (learning.py): a face close to someone you've named, but not certain,
+  becomes a question on your phone ("Is this Sarah?") instead of a stranger alert, and your
+  answer teaches it. Faces it's very sure of are learnt by itself. Several looks at the same
+  person are also put together, which is surer than any single look.
+- Sharper faces (faces.enhance): small, dark or grainy faces are enlarged, brightened and
+  sharpened before matching, and the sharpest of the last few full quality pictures is used.
+- Following and zooming (follow.py): a pan, tilt and zoom camera can follow someone across
+  your property, and zoom in on a face too small to recognise. While it does, the rules here
+  see where people stand in the camera's usual view (o["home"]), and lines, loitering areas,
+  parcels and cars wait until it's back.
 
 Events published (all carry smart: true, camera, camera_name, time, title, message, picture):
   stranger, returning_stranger (stranger: true, visitor, visits), known_person (recognised_by
   "face" or "body"), vehicle (known true/false), parcel_arrived, parcel_taken, loitering,
-  line_crossed.
+  line_crossed, who_is_this (question, person_name, question_pic: answer at
+  /api/smart/questions/<question>).
 
 Settings live in config.json under "smart"; named people and cars, and pictures, in the
 "smart" folder next to config.json.
@@ -46,6 +57,8 @@ import numpy as np
 
 from . import bodies as bodymod
 from . import faces as facemod
+from . import follow as followmod
+from . import learning as learnmod
 from . import plates as platemod
 from . import privacy
 from . import sightings as logmod
@@ -80,10 +93,12 @@ DEFAULT_SMART = {
         "strictness": "normal",
     },
     "log": dict(logmod.DEFAULT_LOG),  # log people and number plates seen on your property
+    "learn": dict(learnmod.DEFAULT_LEARN),          # ask "Is this ...?" and learn from the answers
+    "tracking": dict(followmod.DEFAULT_TRACKING),   # follow people and zoom in on faces
     "cameras": {},                    # camera id -> {"parcel", "lines", "areas", "property"}
 }
 DEFAULT_CAMERA_SMART = {"parcel": {"enabled": False, "area": []}, "lines": [], "areas": [], "property": []}
-SECTIONS = ("faces", "vehicles", "parcels", "bodies", "visitors", "log")
+SECTIONS = ("faces", "vehicles", "parcels", "bodies", "visitors", "log", "learn", "tracking")
 
 VISIT_GAP = 30          # seconds without a person before a visit is over
 LOOK_EVERY = 1.5        # seconds between face checks during a visit
@@ -212,6 +227,10 @@ def clean_settings(body, current):
         out["visitors"]["forget_days"] = max(out["visitors"]["forget_days"], out["visitors"]["days"])
     if isinstance(body.get("log"), dict):
         out["log"] = logmod.clean_settings(body["log"], out.get("log"))
+    if isinstance(body.get("learn"), dict):
+        out["learn"] = learnmod.clean_learn(body["learn"], out.get("learn"))
+    if isinstance(body.get("tracking"), dict):
+        out["tracking"] = followmod.clean_tracking(body["tracking"], out.get("tracking"))
     return out
 
 
@@ -237,6 +256,12 @@ def crossing(a, b, p, q):
 def inside(points, p):
     pts = np.array(points, np.float32)
     return len(pts) >= 3 and cv2.pointPolygonTest(pts, (float(p[0]), float(p[1])), False) >= 0
+
+
+def home_box(o):
+    """Where something is in the camera's usual view (the same as its box unless the camera
+    has turned by itself to follow someone)."""
+    return o.get("home") or o["box"]
 
 
 def feet(box):
@@ -272,7 +297,8 @@ class Tracker:
         moved = []
         free = list(self.tracks)
         for o in sorted(objects, key=lambda o: -o["conf"]):
-            p = feet(o["box"])
+            hb = home_box(o)
+            p = feet(hb)
             best, best_d = None, None
             for t in free:
                 if t["kind"] != o["kind"]:
@@ -289,7 +315,7 @@ class Tracker:
             else:
                 free.remove(best)
                 prev, dt = best["p"], now - best["t"]
-                tall = o["box"][3] - o["box"][1]
+                tall = hb[3] - hb[1]
                 if dt > 0 and tall > 0.05:
                     # Walking pace in body lengths a second (standing still doesn't count).
                     pace = ((p[0] - prev[0]) ** 2 + (p[1] - prev[1]) ** 2) ** 0.5 / dt / tall
@@ -542,9 +568,22 @@ class CameraWatcher:
 
     # ---- each picture ----
 
-    def on_frame(self, frame, now, moving, objects, turning):
+    def on_frame(self, frame, now, moving, objects, turning, follow=False):
+        """follow: the camera is turning by itself to follow someone (follow.py). Faces are still
+        checked; lines, areas, parcels and cars wait until it's back where it was."""
         with self._lock:
             self.frame = frame
+            if follow:
+                if objects is not None:
+                    people = [o for o in objects if o["kind"] == "person"]
+                    if people:
+                        self.last_people = now
+                    self.tracker.update(people, now)
+                    counted = [o for o in people if not o["ignored"]]
+                    if counted:
+                        self._visit_seen(frame, now, counted, self.rules, follow=True)
+                self._check_visit(now)
+                return
             if turning:
                 if not self.was_turning:
                     self._camera_turned()
@@ -636,6 +675,28 @@ class CameraWatcher:
 
     # ---- faces, bodies and visitors ----
 
+    def look_now(self):
+        """The camera has just zoomed in on someone: check their face straight away."""
+        with self._lock:
+            if self.visit is not None:
+                self.visit["next_look"] = 0.0
+
+    def wants_face_zoom(self, box, zoomed=False):
+        """Would zooming in on this person help? Yes while faces are being recognised, nobody
+        in this visit has been recognised, no clear face has been seen yet, and the face has
+        been looked for at least twice (zoomed: whether to stay zoomed in)."""
+        if not self.hub.faces_on() or not self.hub.store.has_people:
+            return False
+        with self._lock:
+            v = self.visit
+            if v is None or v["known"]:
+                return False
+            if v["max_face"] >= facemod.GOOD_FACE_PX:
+                return False
+            if any(tr.get("unknown_faces", 0) >= 2 for tr in v["tracks"].values()):
+                return False     # clearly a stranger already
+            return zoomed or v["looks"] >= 2
+
     def _may_learn(self, box, rules):
         """Bodies and visitors are only learnt from people standing on your property (when
         you've drawn it), and never from people in a privacy area."""
@@ -652,7 +713,7 @@ class CameraWatcher:
         nobody passing in the street is logged."""
         return bool(rules.get("property")) and self._may_learn(box, rules)
 
-    def _visit_seen(self, frame, now, people, rules):
+    def _visit_seen(self, frame, now, people, rules, follow=False):
         if not self.hub.faces_on():
             return
         v = self.visit
@@ -665,6 +726,7 @@ class CameraWatcher:
                               "decided": False, "stranger_sent": False, "frame": None, "boxes": [],
                               "tracks": {}, "on_property": set(), "clip": None, "returning": None,
                               "loggable": set(), "when": datetime.datetime.now().isoformat(timespec="seconds"),
+                              "looks": 0, "max_face": 0.0, "asked": set(),
                               "key": f"{self.id}:{datetime.datetime.now():%Y%m%d%H%M%S}:{self._visits}"}
         v["last"] = now
         clip = getattr(self.cam, "clip", None)
@@ -679,22 +741,25 @@ class CameraWatcher:
         for o in people:
             t = self.tracker.track_of(o["box"])
             tid = t["id"] if t else None
-            ok = self._may_learn(o["box"], rules)
+            hb = home_box(o)
+            ok = self._may_learn(hb, rules)
             if ok:
-                heights.add(o["box"])
+                if not follow:      # sizes mean nothing while the camera turns and zooms
+                    heights.add(o["box"])
                 v["on_property"].add(tid)
-            if logging_on and self._may_log(o["box"], rules):
+            if logging_on and self._may_log(hb, rules):
                 v["loggable"].add(tid)
             looks.append({"box": o["box"], "track": tid, "body": ok,
                           "pace": t.get("pace") if t else None,
-                          "height": heights.ratio(o["box"]) if ok else None})
+                          "height": heights.ratio(o["box"]) if ok and not follow else None})
         if self.hub.look_for_faces(self, v["id"], frame, looks):
             v["next_look"] = now + LOOK_EVERY
 
     @staticmethod
     def _vtrack(v, tid):
         return v["tracks"].setdefault(tid, {"known": None, "by": None, "person_id": None, "unknown_faces": 0,
-                                            "faces": [], "face": None, "bodies": [], "votes": {}, "learnt": 0})
+                                            "faces": [], "face": None, "bodies": [], "votes": {}, "learnt": 0,
+                                            "looks": [], "unsure": None, "auto_learnt": False})
 
     def on_faces(self, visit_id, found, picture, bodies=()):
         """Called from the face worker with the faces (and bodies) it found in one look."""
@@ -702,24 +767,45 @@ class CameraWatcher:
             v = self.visit
             if v is None or v["id"] != visit_id:
                 return
+            v["looks"] += 1
             store = self.hub.store
             threshold = facemod.FACE_MATCH[self.hub.settings["faces"]["strictness"]]
+            learn = self.hub.settings.get("learn") or learnmod.DEFAULT_LEARN
             for f in found:
-                if f["size"] < facemod.MIN_FACE_PX:
+                if f["size"] < (facemod.MIN_ENHANCED_PX if f.get("enhanced") else facemod.MIN_FACE_PX):
                     continue
                 tr = self._vtrack(v, f.get("track"))
                 v["faces"] += 1
-                person, likeness = store.match_face(f["feature"], threshold)
+                if f["score"] >= 0.8 and not f.get("enhanced"):
+                    v["max_face"] = max(v["max_face"], f["size"])
+                close, likeness = store.closest_face(f["feature"])
+                if f["score"] >= 0.8 and f.get("track") is not None:
+                    # Put several looks at the same person together: surer than any one look.
+                    tr["looks"] = (tr["looks"] + [facemod.unit(f["feature"])])[-6:]
+                    if len(tr["looks"]) >= 2 and likeness < threshold:
+                        both, b_like = store.closest_face(facemod.unit(np.mean(tr["looks"], axis=0)))
+                        if both is not None and b_like > likeness:
+                            close, likeness = both, b_like
+                person = close if close is not None and likeness >= threshold else None
                 if f["score"] >= 0.85 and (tr["face"] is None or f["size"] > tr["face"]["size"]):
                     tr["face"] = f      # the best picture of their face, for the sightings log
                 if person is not None:
                     tr["known"], tr["by"], tr["person_id"] = person["name"], "face", person["id"]
+                    tr["unsure"] = None
                     first = person["name"] not in v["known"]
                     v["known"][person["name"]] = likeness
                     if first:
                         self._known_event(person["name"], picture)
+                    if learn.get("auto") and not tr["auto_learnt"]:
+                        tr["auto_learnt"] = learnmod.auto_learn(store, person, f["feature"], likeness, threshold, f)
                     continue
                 if f["score"] < 0.85:
+                    continue
+                if (learn.get("ask") and close is not None and not tr["unknown_faces"]
+                        and likeness >= threshold - learnmod.UNSURE_MARGIN):
+                    # Close to someone you've named, but not close enough to be sure: ask.
+                    if tr["unsure"] is None or likeness > tr["unsure"]["likeness"]:
+                        tr["unsure"] = {"person": close, "likeness": likeness, "face": f, "picture": picture}
                     continue
                 v["unknown"] += 1
                 tr["unknown_faces"] += 1
@@ -786,12 +872,39 @@ class CameraWatcher:
             if not v["stranger_sent"]:
                 if v["unknown"] >= 1:
                     self._stranger_event(v, confirmed=True)
+                elif self._ask(v):
+                    pass        # "Is this ...?" instead of a stranger alert
                 elif not v["known"]:
                     # No face seen. A returning stranger alerts even when "person seen" doesn't.
                     if self.hub.settings["faces"]["no_face"] == "alert" or self._returning(v):
                         self._stranger_event(v, confirmed=False)
         if now - v["last"] > VISIT_GAP:
             self._end_visit()
+
+    def _ask(self, v):
+        """Asks "Is this ...?" about each person in the visit whose face was close to someone
+        you've named but not certain. True if anyone was asked about."""
+        asked = False
+        for tr in v["tracks"].values():
+            u = tr.get("unsure")
+            if not u or tr["known"] or tr["unknown_faces"]:
+                continue
+            person, f = u["person"], u["face"]
+            asked = True
+            if person["id"] in v["asked"]:
+                continue
+            v["asked"].add(person["id"])
+            q = self.hub.questions.ask(person, u["likeness"], f["feature"], f.get("crop"), self.id, self.name, v["clip"])
+            if q is None:
+                continue    # the same question is already waiting for an answer
+            name = person["name"]
+            self.cam.add_seen(f"{name}?")
+            self.hub.publish(self, "who_is_this", f"{self.name}: is this {name}?",
+                             f"Someone who looks like {name} is here, but it isn't sure. "
+                             "Answer Yes or No and it will learn.", u["picture"],
+                             {"question": q["id"], "person_name": name, "person": True,
+                              "question_pic": f"/api/smart/pics/{q['pic']}"})
+        return asked
 
     def _sightings(self, v):
         """What was seen of each person in this visit who wasn't recognised, for visitor memory.
@@ -1095,6 +1208,7 @@ class SmartHub:
         self.engine = engine if engine is not None else facemod.FaceEngine()
         self.body_engine = body_engine if body_engine is not None else bodymod.BodyEngine()
         self.visitors = visitmod.VisitorStore(folder, self.store)
+        self.questions = learnmod.QuestionStore(folder, self.store)
         self.plates = plate_reader if plate_reader is not None else platemod.PlateReader()
         self.log = logmod.SightingLog(folder, self.store, threaded=start_worker)
         self._heights_path = os.path.join(folder, "heights.json")
@@ -1308,7 +1422,7 @@ class SmartHub:
         boxes = [lk["box"] for lk in looks]
         img = None
         if hasattr(watcher.cam, "hires_frame"):
-            img = watcher.cam.hires_frame()
+            img = watcher.cam.hires_frame(sharpest=True)
         if img is None:
             img = frame
         H, W = img.shape[:2]
@@ -1336,7 +1450,15 @@ class SmartHub:
             px1, py1, px2, py2 = int(a * W), int(b * H), int(c * W), int(d * H)
             if px2 - px1 < 16 or py2 - py1 < 16:
                 continue
-            for f in self.engine.faces(img[py1:py2, px1:px2]):
+            head = img[py1:py2, px1:px2]
+            got = self.engine.faces(head)
+            sharpen = getattr(self.engine, "faces_sharpened", None)
+            if sharpen is not None and not any(f["size"] >= facemod.GOOD_FACE_PX for f in got):
+                # Small, dark or grainy: try again on an enhanced copy, and keep what's better.
+                better = sharpen(head)
+                if better and (not got or max(f["score"] for f in better) > max(f["score"] for f in got)):
+                    got = better
+            for f in got:
                 fx, fy, fw, fh = f["box"]
                 f["box"] = (fx + px1, fy + py1, fw, fh)
                 f["track"] = lk.get("track")
@@ -1385,14 +1507,20 @@ class SmartHub:
         cams = {}
         for cam_id, cam in self.hub.cameras.items():
             w = self.watchers.get(cam_id)
+            ptz = getattr(cam, "ptz", None)
+            fol = getattr(cam, "follower", None)
             cams[cam_id] = {"name": cam.cfg.get("name") or cam_id, **copy.deepcopy(self.camera_settings(cam_id)),
-                            "parcel_status": w.parcel_status() if w else None}
+                            "parcel_status": w.parcel_status() if w else None,
+                            "ptz": bool(ptz is not None and ptz.available),
+                            "zoom": bool(ptz is not None and ptz.available and getattr(ptz, "zoom", False)),
+                            "following": fol.status() if fol is not None and ptz is not None else None}
         return {
             "settings": {k: v for k, v in copy.deepcopy(self.settings).items() if k != "cameras"},
             "faces_available": self.engine.available,
             "bodies_available": self.body_engine.available,
             "visitors": self.visitors.public(self.settings["visitors"]["days"]),
             "plates_available": self.plates.available,
+            "questions": self.questions.public(),
             "log_stats": self.log.stats(),
             "detector_available": bool(getattr(self.hub.detector, "available", False)),
             "cameras": cams,

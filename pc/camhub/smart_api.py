@@ -70,6 +70,26 @@ def add_smart_routes(app, hub):
     def delete_person(pid: str):
         if not smart.store.remove("people", pid):
             raise HTTPException(404, "Not found")
+        smart.questions.person_removed(pid)
+        return smart.state()
+
+    # ---- "Is this ...?" questions (learning.py) ----
+
+    @app.get("/api/smart/questions")
+    def get_questions():
+        return {"questions": smart.questions.public()}
+
+    @app.post("/api/smart/questions/{qid}")
+    async def answer_question(qid: str, request: Request):
+        """Body: {"answer": "yes" | "no" | "other", "id": person (for other), "name": new person}."""
+        body = await body_of(request)
+        said = run(smart.questions.answer, qid, str(body.get("answer") or ""), body.get("id"), body.get("name"))
+        return {**smart.state(), "said": said}
+
+    @app.delete("/api/smart/questions/{qid}")
+    def forget_question(qid: str):
+        if not smart.questions.forget(qid):
+            raise HTTPException(404, "That question has already been answered")
         return smart.state()
 
     @app.post("/api/smart/people/{pid}/photos")

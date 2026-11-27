@@ -238,6 +238,8 @@ def create_app(hub):
         presets = cam.ptz_cfg.setdefault("presets", [])
         same = next((p for p in presets if p["name"].lower() == name.lower()), None)
         taken = {p["token"] for p in presets if p is not same}
+        if cam.ptz_cfg.get("return_token"):
+            taken.add(cam.ptz_cfg["return_token"])    # the slot following uses to come back
         try:
             token = await asyncio.to_thread(cam.ptz.save_preset, name, taken)
         except Exception as e:

@@ -46,11 +46,121 @@
   }
   function render() {
     const wrap = $('#smart'); wrap.innerHTML = '';
-    wrap.append(facesCard(), visitorsCard(), carsCard());
+    if ((data.questions || []).length) wrap.appendChild(questionsCard());
+    wrap.append(facesCard());
+    if (Object.values(data.cameras).some(c => c.ptz)) wrap.appendChild(followCard());
+    wrap.append(visitorsCard(), carsCard());
     for (const [id, cam] of Object.entries(data.cameras)) wrap.appendChild(rulesCard(id, cam));
     wrap.appendChild(activityCard());
   }
   window.loadSmart = loadSmart;
+
+  // A phone notification ("Is this Sarah?" > Someone else) opens the Smart tab at the questions.
+  async function openQuestions() {
+    if (!/smart=questions/.test(location.hash) || typeof showTab !== 'function') return;
+    showTab('smart');
+    await loadSmart();
+    const c = q('.questions-card', document); if (c) c.scrollIntoView({behavior: 'smooth'});
+  }
+  window.addEventListener('load', openQuestions);
+  window.addEventListener('hashchange', openQuestions);
+
+  // ---------- "Is this ...?" questions (learning as you go) ----------
+  function questionsCard() {
+    const card = h(`<div class="card wide smart-card questions-card">
+      <h2>Is this who it looks like?</h2>
+      <p class="muted" style="margin-top:0">These faces looked like someone you've named, but not enough to be sure, so no
+        stranger alert was sent. Each answer teaches it: next time it will know.</p>
+      <div class="question-list"></div></div>`);
+    const list = q('.question-list', card);
+    for (const it of data.questions) {
+      const row = h(`<div class="question-row">
+        <img src="${pic(it.pic)}" alt="" loading="lazy">
+        <div class="question-body">
+          <b>Is this ${esc(it.person_name)}?</b>
+          <div class="muted small">${esc(when(it.time))} · ${esc(it.camera_name || it.camera)}</div>
+          <div class="question-btns">
+            <button class="primary yes">Yes, it's ${esc(it.person_name)}</button>
+            <button class="no">No</button>
+            <select class="other"><option value="">Someone else…</option>
+              ${data.people.filter(p => p.id !== it.person_id).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}
+              <option value="__new">Someone new…</option></select>
+            ${it.clip ? '<button class="watch">Watch</button>' : ''}
+            <button class="forget" title="Don't answer this one">Skip</button>
+          </div></div></div>`);
+      const answer = async (body) => {
+        try { const r = await send(`/api/smart/questions/${it.id}`, 'POST', body); toast(r.said || 'Thanks!'); render(); }
+        catch (e) { toast(e.message); }
+      };
+      q('.yes', row).addEventListener('click', () => answer({answer: 'yes'}));
+      q('.no', row).addEventListener('click', () => answer({answer: 'no'}));
+      q('.other', row).addEventListener('change', (ev) => {
+        const v = ev.target.value; if (!v) return;
+        if (v === '__new') {
+          const name = prompt('Their name'); if (!name) { ev.target.value = ''; return; }
+          answer({answer: 'other', name});
+        } else answer({answer: 'other', id: v});
+      });
+      const w = q('.watch', row);
+      if (w) w.addEventListener('click', () => { location.hash = 'clip=' + it.clip; location.reload(); });
+      q('.forget', row).addEventListener('click', async () => {
+        try { await send(`/api/smart/questions/${it.id}`, 'DELETE'); render(); } catch (e) { toast(e.message); }
+      });
+      list.appendChild(row);
+    }
+    return card;
+  }
+
+  // ---------- following people and zooming in on faces ----------
+  function followCard() {
+    const t = data.settings.tracking;
+    const cams = Object.values(data.cameras).filter(c => c.ptz);
+    const noProperty = cams.filter(c => !(c.property || []).length);
+    const anyZoom = cams.some(c => c.zoom);
+    const card = h(`<div class="card wide smart-card">
+      <h2>Follow and zoom</h2>
+      <p class="muted" style="margin-top:0">Your camera can turn and zoom by itself. It only does this for people standing on
+        your property, never for anyone in the street, in a privacy area or in an ignore zone. Privacy areas stay covered
+        while it turns. Afterwards it goes back to exactly where it was pointing. Steering it by hand stops it straight away.</p>
+      ${noProperty.length ? `<p class="warn-box">Draw "Our property" below for ${noProperty.map(c => esc(c.name)).join(', ')}
+        first. Until then the camera won't move by itself.</p>` : ''}
+      <div class="smart-opts">
+        <label class="check"><input type="checkbox" class="t-follow" ${t.follow ? 'checked' : ''}>
+          Follow people across the property, so you get one clear clip</label>
+        <label class="check">For at most
+          <select class="t-max"><option value="30">30 seconds</option><option value="60">1 minute</option>
+            <option value="120">2 minutes</option><option value="300">5 minutes</option><option value="600">10 minutes</option></select></label>
+      </div>
+      <div class="smart-opts">
+        <label class="check"><input type="checkbox" class="t-zoom" ${t.zoom ? 'checked' : ''}>
+          ${anyZoom ? 'Zoom in on faces too small or unclear to recognise' : 'Point at faces too small or unclear to recognise'}</label>
+      </div>
+      <p class="muted small" style="margin-top:0">${anyZoom ? 'It zooms in for a few seconds, takes the sharpest picture, then zooms back out.'
+        : "This camera has no optical zoom, so it centres on the person's head instead."}
+        Small, dark or grainy faces are also enlarged, brightened and sharpened on this PC before they're matched.
+        Zooming needs face recognition on.</p>
+      <div class="follow-status muted small">${cams.map(c => `${esc(c.name)}: ${esc(followText(c.following))}`).join(' · ')}</div>
+    </div>`);
+    const sel = q('.t-max', card);
+    if (![...sel.options].some(o => o.value === String(t.max_seconds))) sel.add(new Option(`${t.max_seconds} seconds`, t.max_seconds));
+    sel.value = String(t.max_seconds);
+    const save = async () => {
+      try {
+        await send('/api/smart/settings', 'PUT', {tracking: {follow: q('.t-follow', card).checked,
+          zoom: q('.t-zoom', card).checked, max_seconds: +sel.value}});
+        toast('Saved');
+      } catch (e) { toast('Could not save: ' + e.message); }
+    };
+    qa('.t-follow, .t-zoom, .t-max', card).forEach(i => i.addEventListener('change', save));
+    return card;
+  }
+  function followText(f) {
+    if (!f) return 'not available';
+    if (f.state === 'follow') return 'following someone now';
+    if (f.state === 'zoom') return 'zoomed in on a face now';
+    if (f.state === 'back') return 'going back';
+    return f.reason ? `ready (last stopped: ${f.reason})` : 'ready';
+  }
 
   let refreshTimer = null;
   window.onSmartEvent = (e) => {
@@ -85,6 +195,14 @@
         <label class="check">Matching
           <select class="b-strict"><option value="relaxed">Relaxed</option><option value="normal">Normal</option><option value="strict">Strict</option></select></label>
       </div>
+      <div class="smart-opts">
+        <label class="check"><input type="checkbox" class="l-ask" ${data.settings.learn.ask ? 'checked' : ''}>
+          When it isn't sure, ask me ("Is this Sarah?") instead of sending a stranger alert</label>
+        <label class="check"><input type="checkbox" class="l-auto" ${data.settings.learn.auto ? 'checked' : ''}>
+          Learn new looks by itself (glasses, a haircut, at night)</label>
+      </div>
+      <p class="muted small" style="margin-top:0">Your answers teach it: "yes" adds that face, "no" means a face like it is never
+        taken for them again. Faces it learns by itself are marked ✦, and never replace the photos you added.</p>
       <p class="muted small" style="margin-top:0">Each time a face is recognised, the PC keeps a picture of that person's build and
         clothes, so it learns by itself. When someone's back is to the camera and they match, there's no "person seen" alert.
         A clear face it doesn't know always counts as a stranger, whatever they're wearing. Needs face recognition on.</p>
@@ -110,18 +228,19 @@
       try {
         await send('/api/smart/settings', 'PUT', {faces: {enabled: q('.f-on', card).checked,
           no_face: q('.f-noface', card).value, strictness: q('.f-strict', card).value},
-          bodies: {enabled: q('.b-on', card).checked, strictness: q('.b-strict', card).value}});
+          bodies: {enabled: q('.b-on', card).checked, strictness: q('.b-strict', card).value},
+          learn: {ask: q('.l-ask', card).checked, auto: q('.l-auto', card).checked}});
         toast('Saved');
       } catch (e) { toast('Could not save: ' + e.message); }
     };
-    qa('.f-on, .f-noface, .f-strict, .b-on, .b-strict', card).forEach(i => i.addEventListener('change', save));
+    qa('.f-on, .f-noface, .f-strict, .b-on, .b-strict, .l-ask, .l-auto', card).forEach(i => i.addEventListener('change', save));
 
     const people = q('.people', card);
     if (!data.people.length) people.innerHTML = '<p class="muted">Nobody yet.</p>';
     for (const p of data.people) {
       const row = h(`<div class="known-row">
         <b class="kname">${esc(p.name)}</b>
-        <span class="thumbs">${p.faces.map(x => `<span class="thumb-x">${x.pic ? `<img src="${pic(x.pic)}" alt="">` : '<span class="nopic">☺</span>'}
+        <span class="thumbs">${p.faces.map(x => `<span class="thumb-x">${x.pic ? `<img src="${pic(x.pic)}" alt="">` : '<span class="nopic">☺</span>'}${x.auto ? '<i title="Learnt by itself">✦</i>' : ''}
           <button data-f="${esc(x.id)}" title="Remove this photo" aria-label="Remove this photo">✕</button></span>`).join('')}
           ${p.faces.length ? '' : '<span class="muted">No photos yet</span>'}</span>
         ${(p.bodies || []).length ? `<span class="thumbs bodies" title="Learnt by itself, for knowing ${esc(p.name)} from behind">

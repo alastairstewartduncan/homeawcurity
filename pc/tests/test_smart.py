@@ -45,7 +45,7 @@ class FakeCam:
     def add_seen(self, label):
         self.seen.append(label)
 
-    def hires_frame(self):
+    def hires_frame(self, sharpest=False):
         return None
 
 

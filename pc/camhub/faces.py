@@ -35,6 +35,7 @@ FACE_MATCH = {"relaxed": 0.34, "normal": 0.40, "strict": 0.48}
 # How alike two cars' colours must be (0 to 1).
 CAR_MATCH = {"relaxed": 0.55, "normal": 0.65, "strict": 0.75}
 MIN_FACE_PX = 36        # smaller faces are too blurry to recognise
+MIN_ENHANCED_PX = 26    # ... unless the picture is enhanced first (see enhance)
 GOOD_FACE_PX = 56       # a face this big gives a confident answer
 
 
@@ -114,9 +115,56 @@ class FaceEngine:
                             "feature": feature, "crop": face_crop(img, (x, y, fw, fh))})
         return out
 
+    def faces_sharpened(self, img):
+        """Like faces(), on an enhanced copy of a small or dark picture of someone's head and
+        shoulders (see enhance). Boxes and sizes are in pixels of img, as they really are;
+        each face found carries "enhanced": True."""
+        if not self.available or img is None or img.size == 0:
+            return []
+        better, scale = enhance(img)
+        out = []
+        for f in self.faces(better, max_side=max(better.shape[:2])):
+            x, y, w, h = f["box"]
+            f["box"] = (x / scale, y / scale, w / scale, h / scale)
+            f["size"] = f["size"] / scale
+            f["enhanced"] = True
+            out.append(f)
+        return out
+
     def largest_face(self, img):
         found = self.faces(img, max_side=1280)
         return max(found, key=lambda f: f["size"]) if found else None
+
+
+def enhance(img, want=320):
+    """Makes a small, dark or grainy picture of a head easier to recognise.
+
+    - Enlarged (up to 4 times) with smooth resampling, so the face finder sees enough of it.
+    - At night (black and white infrared) or in the dark: the brightness is spread out locally
+      (CLAHE), and the grain the camera adds in the dark is smoothed away.
+    - Sharpened a little (unsharp mask), to undo some of the blur from enlarging.
+
+    Returns (picture, how much it was enlarged)."""
+    h, w = img.shape[:2]
+    scale = max(1.0, min(4.0, want / max(1, max(h, w))))
+    out = cv2.resize(img, (int(round(w * scale)), int(round(h * scale))), interpolation=cv2.INTER_CUBIC) \
+        if scale > 1.0 else img.copy()
+    night = is_night(img)
+    lab = cv2.cvtColor(out, cv2.COLOR_BGR2LAB)
+    light = lab[:, :, 0]
+    dark = float(light.mean()) < 90
+    if night or dark:
+        light = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(4, 4)).apply(light)
+        if float(light.mean()) < 70:
+            # Still dark: lift the shadows more than the highlights.
+            lut = np.uint8([min(255, int(255 * (i / 255) ** 0.7)) for i in range(256)])
+            light = cv2.LUT(light, lut)
+        lab[:, :, 0] = light
+        out = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+        out = cv2.fastNlMeansDenoisingColored(out, None, 6, 6, 5, 15)
+    blur = cv2.GaussianBlur(out, (0, 0), 1.2)
+    out = cv2.addWeighted(out, 1.5, blur, -0.5, 0)
+    return out, scale
 
 
 def face_crop(img, box, out=160):
@@ -233,6 +281,7 @@ class KnownStore:
 
     SEEN_KEEP = 60
     MAX_FACES = 30   # per person
+    MAX_NOT_FACES = 30  # per person: faces you said weren't them
     MAX_SAMPLES = 20  # per car
     MAX_BODIES = 40  # per person: the newest pictures of their build and clothes
 
@@ -249,6 +298,7 @@ class KnownStore:
             self.seen = []
         for p in self.known["people"]:
             p.setdefault("bodies", [])
+            p.setdefault("not_faces", [])
         self._body_cache = {}    # body picture id -> its numbers, unpacked
 
     def _read(self, name, default):
@@ -286,6 +336,9 @@ class KnownStore:
         p = os.path.join(self.pics, name)
         return p if os.path.isfile(p) else None
 
+    def drop_pic(self, name):
+        self._drop_pic(name)
+
     def _drop_pic(self, name):
         p = self.pic_path(name)
         if p:
@@ -309,7 +362,8 @@ class KnownStore:
         with self._lock:
             return {
                 "people": [{"id": p["id"], "name": p["name"],
-                            "faces": [{"id": f["id"], "pic": f.get("pic")} for f in p["faces"]],
+                            "faces": [{"id": f["id"], "pic": f.get("pic"), "auto": bool(f.get("auto"))}
+                                      for f in p["faces"]],
                             "bodies": [{"id": b["id"], "pic": b.get("pic"), "night": b.get("night"),
                                         "time": b.get("time")} for b in p.get("bodies", [])],
                             "height": self.person_height(p)}
@@ -321,6 +375,10 @@ class KnownStore:
                 "seen": [{k: v for k, v in s.items() if k not in ("feature", "sig")} for s in self.seen],
             }
 
+    def find_person(self, person_id):
+        with self._lock:
+            return self._find("people", person_id)
+
     def _find(self, kind, item_id):
         for x in self.known[kind]:
             if x["id"] == item_id:
@@ -330,7 +388,7 @@ class KnownStore:
     def add_person(self, name):
         name = clean_name(name)
         with self._lock:
-            p = {"id": new_id("per_"), "name": name, "faces": [], "bodies": []}
+            p = {"id": new_id("per_"), "name": name, "faces": [], "bodies": [], "not_faces": []}
             self.known["people"].append(p)
             self.save()
             return p
@@ -391,18 +449,42 @@ class KnownStore:
                     return True
             return False
 
-    def add_face(self, person_id, feature, crop_jpeg=None, pic=None):
+    def add_face(self, person_id, feature, crop_jpeg=None, pic=None, auto=False):
+        """auto: learnt by itself (learning.py). Those are the first to make room, and only
+        AUTO_KEEP of them are kept, so the photos you chose stay."""
+        from .learning import AUTO_KEEP
         with self._lock:
             p = self._find("people", person_id)
             if not p:
                 return None
             f = {"id": new_id("f_"), "feature": [round(float(v), 5) for v in unit(feature)],
                  "pic": pic or self.put_pic(crop_jpeg, "f")}
+            if auto:
+                f["auto"] = True
             p["faces"].append(f)
+            autos = [x for x in p["faces"] if x.get("auto")]
+            while len(autos) > AUTO_KEEP or (len(p["faces"]) > self.MAX_FACES and autos):
+                old = autos.pop(0)
+                p["faces"].remove(old)
+                self._drop_pic(old.get("pic"))
             while len(p["faces"]) > self.MAX_FACES:
                 self._drop_pic(p["faces"].pop(0).get("pic"))
+            # A face you've now said is them is no longer "not them".
+            feat = unit(feature)
+            p["not_faces"] = [n for n in p.get("not_faces", []) if float(np.dot(np.float32(n), feat)) < 0.9]
             self.save()
             return f
+
+    def add_not_face(self, person_id, feature):
+        """You said this face isn't them: never take a face like it for them again."""
+        with self._lock:
+            p = self._find("people", person_id)
+            if not p:
+                return False
+            p.setdefault("not_faces", []).append([round(float(v), 5) for v in unit(feature)])
+            del p["not_faces"][:-self.MAX_NOT_FACES]
+            self.save()
+            return True
 
     def add_car_sample(self, car_id, sig, crop_jpeg=None, pic=None):
         with self._lock:
@@ -418,8 +500,9 @@ class KnownStore:
 
     # ---- matching ----
 
-    def match_face(self, feature, threshold):
-        """(person, likeness) for the best match, person None if nobody is close enough."""
+    def closest_face(self, feature):
+        """(person, likeness) for whoever's face is most like this one, even if not very.
+        People you said this face isn't (a face very like one you said no to) are skipped."""
         feature = unit(feature)
         best, best_sim = None, -1.0
         with self._lock:
@@ -428,8 +511,16 @@ class KnownStore:
                     continue
                 feats = np.float32([f["feature"] for f in p["faces"]])
                 sim = float(np.max(feats @ feature))
+                nots = p.get("not_faces") or []
+                if nots and float(np.max(np.float32(nots) @ feature)) >= max(sim, 0.5):
+                    continue
                 if sim > best_sim:
                     best, best_sim = p, sim
+        return best, best_sim
+
+    def match_face(self, feature, threshold):
+        """(person, likeness) for the best match, person None if nobody is close enough."""
+        best, best_sim = self.closest_face(feature)
         return (best if best_sim >= threshold else None), best_sim
 
     def match_car(self, sig, threshold):

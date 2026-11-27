@@ -366,7 +366,8 @@ class MonitorService : Service() {
 
     /**
      * Smart alerts from the PC: a stranger, an unknown vehicle, a parcel left or taken, someone
-     * loitering or crossing a line. The PC decides whether to alert (family and home/away).
+     * loitering or crossing a line, or a question ("Is this Sarah?") with Yes and No buttons.
+     * The PC decides whether to alert (family and home/away).
      */
     private fun handleSmart(prefs: Prefs, e: JSONObject) {
         if (e.has("alert") && !e.optBoolean("alert", true)) return
@@ -392,7 +393,18 @@ class MonitorService : Service() {
         } else {
             n.setStyle(NotificationCompat.BigTextStyle().bigText(message))
         }
-        notify(("smart" + e.optLong("seq")).hashCode(), n.build())
+        val id = ("smart" + e.optLong("seq")).hashCode()
+        val question = e.optString("question")
+        if (e.optString("type") == "who_is_this" && question.isNotEmpty()) {
+            // "Is this Sarah?": answer from the notification, and the PC learns from it.
+            val name = e.optString("person_name", "them")
+            n.addAction(0, "Yes, it's $name", QuestionReceiver.answer(this, question, "yes", id))
+            n.addAction(0, "No", QuestionReceiver.answer(this, question, "no", id))
+            n.addAction(0, "Someone else", openApp(this, "smart=questions"))
+            n.setContentIntent(openApp(this, "smart=questions"))
+            n.setAutoCancel(false)
+        }
+        notify(id, n.build())
     }
 
     /** The morning summary of last night's recordings. */

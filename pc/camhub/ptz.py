@@ -221,6 +221,22 @@ class OnvifPtz:
                     return set_preset(token, named=False)
         raise RuntimeError("The camera has no free position slots")
 
+    def update_preset(self, token, name):
+        """Saves where the camera points now into a slot we already have."""
+        body = (f"<tptz:SetPreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                f"<tptz:PresetName>{_esc(name)}</tptz:PresetName>"
+                f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken></tptz:SetPreset>")
+        try:
+            with self._lock:
+                self._call(self.ptz_url, body)
+        except RuntimeError:
+            # Some cameras won't rename a numbered slot; save the position without a name.
+            body = (f"<tptz:SetPreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
+                    f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken></tptz:SetPreset>")
+            with self._lock:
+                self._call(self.ptz_url, body)
+        return token
+
     def goto_preset(self, token):
         body = (f"<tptz:GotoPreset><tptz:ProfileToken>{_esc(self.profile)}</tptz:ProfileToken>"
                 f"<tptz:PresetToken>{_esc(token)}</tptz:PresetToken></tptz:GotoPreset>")

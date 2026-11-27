@@ -540,6 +540,7 @@ async function loadSettings() {
   if (window.tvCard) wrap.appendChild(window.tvCard());
   if (window.remoteCard) wrap.appendChild(await window.remoteCard());
   if (window.updatesCard) wrap.appendChild(await window.updatesCard());
+  if (window.appearanceCard) wrap.appendChild(window.appearanceCard());
   wrap.appendChild(aboutCard());
 }
 

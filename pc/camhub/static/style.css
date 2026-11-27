@@ -18,14 +18,25 @@
   --radius-sm: 10px;
   --shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 10px 30px -12px rgba(0,0,0,.55);
   --header-h: 64px;
+  --tabbar-bg: #0f1729; --tabbar-line: #2b3854; --tabbar-ink: #b8c2d6; --tabbar-active-ink: #ffffff;
   color-scheme: dark;
 }
-@media (prefers-color-scheme: light) {
-  :root {
+/* Dark is the standard look. Settings > Appearance can choose Light, or follow the phone/PC. */
+:root[data-theme="light"] {
     --bg: #f3f6fb; --bg-2: #eaf0f8; --panel: #ffffff; --panel-2: #eef2f8; --line: #dbe2ee;
     --text: #0f172a; --muted: #5b6781; --accent: #2563eb; --accent-2: #3b82f6; --accent-ink: #ffffff;
     --accent-soft: rgba(37, 99, 235, .10); --ok: #059669; --warn: #b45309; --rec: #e11d48;
     --shadow: 0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+    --tabbar-bg: #ffffff; --tabbar-line: #dbe2ee; --tabbar-ink: #475569; --tabbar-active-ink: #0f172a;
+    color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="auto"] {
+    --bg: #f3f6fb; --bg-2: #eaf0f8; --panel: #ffffff; --panel-2: #eef2f8; --line: #dbe2ee;
+    --text: #0f172a; --muted: #5b6781; --accent: #2563eb; --accent-2: #3b82f6; --accent-ink: #ffffff;
+    --accent-soft: rgba(37, 99, 235, .10); --ok: #059669; --warn: #b45309; --rec: #e11d48;
+    --shadow: 0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+    --tabbar-bg: #ffffff; --tabbar-line: #dbe2ee; --tabbar-ink: #475569; --tabbar-active-ink: #0f172a;
     color-scheme: light;
   }
 }
@@ -55,7 +66,7 @@ input:not([type=checkbox]):not([type=radio]):not([type=range]):focus, select:foc
 input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--accent); }
 
 header { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; gap: 20px;
-  height: var(--header-h); padding: 0 20px; padding-top: env(safe-area-inset-top);
+  min-height: var(--header-h); padding: env(safe-area-inset-top) 20px 0;
   background: color-mix(in srgb, var(--panel) 82%, transparent); border-bottom: 1px solid var(--line);
   -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px); }
 .brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; white-space: nowrap; }
@@ -158,32 +169,65 @@ main { padding: 20px; max-width: 1440px; margin: 0 auto; }
 .zone-list .pill button { padding: 0 4px; border: none; background: none; }
 
 .toast { position: fixed; bottom: 16px; right: 16px; z-index: 30; background: var(--panel); border: 1px solid var(--line);
-  border-left: 4px solid var(--rec); padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); max-width: 340px; }
+  border-left: 4px solid var(--accent); padding: 12px 16px; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.35);
+  max-width: 360px; cursor: pointer; animation: toast-in .22s ease-out; }
+.toast.leaving { opacity: 0; transform: translateY(-6px); transition: opacity .2s, transform .2s; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 760px) {
   /* Phone: a slim top bar and the tabs along the bottom, within thumb reach. */
-  :root { --header-h: 56px; }
+  :root { --header-h: 56px; --tabbar-h: 72px; }
   /* No blur on the bar here: it would trap the fixed tab bar inside the header. */
-  header { gap: 10px; padding: 0 14px; padding-top: env(safe-area-inset-top);
+  header { gap: 10px; padding: env(safe-area-inset-top) 12px 0 14px;
     background: var(--panel); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .brand img { width: 28px; height: 28px; }
-  .brand-text b { font-size: 16px; }
-  .brand-text small { font-size: 9px; }
-  .header-right { margin-left: auto; gap: 6px; }
+  .brand { gap: 8px; }
+  .brand img { width: 30px; height: 30px; }
+  .brand-text b { font-size: 17px; }
+  .brand-text small { display: none; }
+  .header-right { margin-left: auto; gap: 4px; min-width: 0; }
   .header-right .storage { display: none; }
+  .presence { min-width: 0; max-width: 52vw; overflow: hidden; text-overflow: ellipsis; padding: 6px 12px; }
+  #logout { padding: 8px; }
   #logout span { display: none; }
-  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; gap: 4px;
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-    background: #0f1729; border-top: 1px solid #33415c; box-shadow: 0 -8px 24px rgba(0,0,0,.45); }
-  nav button { flex: 1; flex-direction: column; gap: 4px; padding: 8px 2px; min-height: 58px;
-    font-size: 12px; font-weight: 600; color: #c3cbdb; border-radius: 14px; }
-  nav button svg { width: 24px; height: 24px; stroke-width: 2; }
-  nav button.active { background: var(--accent); color: #fff; box-shadow: 0 6px 18px -8px var(--accent); }
-  main { padding: 12px 12px calc(96px + env(safe-area-inset-bottom)); }
-  .toast { bottom: calc(96px + env(safe-area-inset-bottom)); left: 12px; right: 12px; max-width: none; }
+
+  /* Tab bar, Material style: a pill behind the open tab's icon, the name underneath. */
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; gap: 0;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    background: var(--tabbar-bg); border-top: 1px solid var(--tabbar-line); box-shadow: 0 -10px 30px rgba(0,0,0,.25); }
+  nav button { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 4px; padding: 4px 0 2px;
+    font-size: 11px; font-weight: 600; letter-spacing: -.01em; color: var(--tabbar-ink); border-radius: 0; background: none; }
+  nav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+  nav button svg { width: 22px; height: 22px; stroke-width: 2; box-sizing: content-box; padding: 5px 16px;
+    border-radius: 99px; transition: background .2s, color .2s; }
+  nav button:hover { background: none; color: var(--tabbar-ink); }
+  nav button.active { background: none; box-shadow: none; color: var(--tabbar-active-ink); }
+  nav button.active svg { background: var(--accent); color: #fff; }
+  nav button:active svg { transform: scale(.92); }
+
+  main { padding: 12px 12px calc(var(--tabbar-h) + 20px + env(safe-area-inset-bottom)); }
+  .toast { top: calc(var(--header-h) + env(safe-area-inset-top) + 8px); bottom: auto; left: 12px; right: 12px; max-width: none; }
   .clips { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .clip .meta { flex-direction: column; gap: 0; }
+
+  /* Live: the picture goes edge to edge, the controls in a tidy two-column panel. */
+  .grid-live { gap: 14px; }
+  #live .cam { margin: 0 -12px; border-radius: 0; border-left: none; border-right: none; }
+  .video-wrap { max-height: none; }
+  .cam-tools { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 16px; align-items: center; padding: 14px; }
+  .cam-tools > div[style] { display: none; }
+  .cam-tools .ptz { grid-row: span 2; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); }
+  .cam-tools .tool-col { gap: 10px; }
+  .cam-tools .tool-col:has(.listen) { grid-column: 1 / -1; flex-direction: row; }
+  .cam-tools .tool-col .listen, .cam-tools .tool-col .talk { flex: 1; }
+  .cam-tools .snap, .cam-tools .full { width: 100%; }
+  .cam-tools .ptz.hidden + .tool-col { grid-column: 1 / -1; }
+  .zoom button { width: 48px; height: 44px; }
+  .positions { padding: 12px 14px; }
 }
+/* Inside the Android app, which keeps the page clear of the phone's bars itself. */
+html.in-app header { padding-top: 0; }
+html.in-app nav { padding-bottom: 6px; }
+html.in-app main { padding-bottom: calc(var(--tabbar-h, 72px) + 20px); }
 
 .cam-form { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
 .cam-form-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }

@@ -143,6 +143,16 @@ jobs:
           Get-Content ci/logs/camhub.log -ErrorAction SilentlyContinue
           if (-not $ok) { throw "camhub.exe did not serve the viewer" }
 
+      - name: Check camtray.exe (the tray icon) starts and stays running
+        run: |
+          if (-not (Test-Path dist/camhub/camtray.exe)) { throw "camtray.exe is missing from the build" }
+          $t = Start-Process dist/camhub/camtray.exe -PassThru
+          Start-Sleep 8
+          $alive = -not $t.HasExited
+          if ($alive) { Stop-Process $t -Force } else { "camtray.exe exited with $($t.ExitCode)" }
+          Get-Content "$env:LOCALAPPDATA\HomeCamera\tray.log" -ErrorAction SilentlyContinue
+          if (-not $alive) { throw "camtray.exe did not keep running" }
+
       - name: Check camhub.exe shows a camera from RTSP
         run: |
           # A stand-in camera: mediamtx serves a test video over RTSP, like the real camera.
@@ -214,6 +224,11 @@ jobs:
           if ($p.ExitCode -ne 0) { Get-Content install.log; throw "install failed: $($p.ExitCode)" }
           Get-Content install.log | Select-Object -Last 15
           Get-ScheduledTask -TaskName "Home Camera" | Format-List TaskName, State
+          $tray = Get-ScheduledTask -TaskName "Home Camera Tray" -ErrorAction SilentlyContinue
+          if (-not $tray) { throw "the tray icon task was not registered" }
+          $tray | Format-List TaskName, State
+          if ($tray.Triggers[0].CimClass.CimClassName -ne "MSFT_TaskLogonTrigger") { throw "the tray icon task doesn't start at sign-in" }
+          if (-not (Test-Path "${env:ProgramFiles}\Home Camera\camtray.exe")) { throw "camtray.exe was not installed" }
           $ok = $false
           foreach ($i in 1..30) {
             Start-Sleep 2
@@ -241,6 +256,7 @@ jobs:
           }
           $r = Invoke-WebRequest http://localhost:8080/api/login -Method Post -ContentType "application/json" -Body '{"password":"ci-password-123"}' -UseBasicParsing -SkipHttpErrorCheck
           if (-not $ok -or $r.StatusCode -ne 200) { throw "A.S.D Home Security didn't come back after the automatic update (sign in $($r.StatusCode))" }
+          if (-not (Get-ScheduledTask -TaskName "Home Camera Tray" -ErrorAction SilentlyContinue)) { throw "the tray icon task was lost in the update" }
           Write-Host "Automatic update installed and A.S.D Home Security came back with the same password."
           schtasks /Delete /F /TN "Home Camera Update" | Out-Null
           $u = Start-Process "${env:ProgramFiles}\Home Camera\unins000.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -PassThru
@@ -248,6 +264,7 @@ jobs:
           # The uninstaller hands over to a copy of itself, so wait for the files to go.
           foreach ($i in 1..60) { if (-not (Test-Path "${env:ProgramFiles}\Home Camera\camhub.exe")) { break }; Start-Sleep 2 }
           if (Get-ScheduledTask -TaskName "Home Camera" -ErrorAction SilentlyContinue) { throw "uninstall left the task behind" }
+          if (Get-ScheduledTask -TaskName "Home Camera Tray" -ErrorAction SilentlyContinue) { throw "uninstall left the tray task behind" }
           if (Test-Path "${env:ProgramFiles}\Home Camera\camhub.exe") { throw "uninstall left files behind" }
           Write-Host "Install, run and uninstall all worked."
 

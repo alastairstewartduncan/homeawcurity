@@ -68,21 +68,25 @@ Type: files; Name: "{commondesktop}\Home Camera.lnk"
 Name: "{commonappdata}\HomeCamera"
 
 [Icons]
-Name: "{group}\A.S.D Home Security"; Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; IconFilename: "{app}\homecamera.ico"
+; Shortcuts go through camtray.exe, which opens the viewer window and makes sure the tray icon is there.
+Name: "{group}\A.S.D Home Security"; Filename: "{app}\camtray.exe"; Parameters: "--open"; IconFilename: "{app}\homecamera.ico"
 Name: "{group}\Find camera again"; Filename: "{app}\find-camera.cmd"; IconFilename: "{app}\homecamera.ico"
 Name: "{group}\Change password"; Filename: "{app}\change-password.cmd"; IconFilename: "{app}\homecamera.ico"
 Name: "{group}\Restart A.S.D Home Security"; Filename: "{app}\restart.cmd"; IconFilename: "{app}\homecamera.ico"
 Name: "{group}\Settings and logs folder"; Filename: "{commonappdata}\HomeCamera"
 Name: "{group}\Recordings folder"; Filename: "{code:StoragePath}"
 Name: "{group}\Uninstall A.S.D Home Security"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\A.S.D Home Security"; Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; IconFilename: "{app}\homecamera.ico"; Tasks: desktopicon
+Name: "{commondesktop}\A.S.D Home Security"; Filename: "{app}\camtray.exe"; Parameters: "--open"; IconFilename: "{app}\homecamera.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{code:ViewerProgram}"; Parameters: "{code:ViewerParams}"; Description: "Open A.S.D Home Security now"; Flags: postinstall nowait skipifsilent shellexec
+; Runs as the person who started setup (the default for postinstall entries), so the tray icon is theirs.
+Filename: "{app}\camtray.exe"; Parameters: "--open"; Description: "Open A.S.D Home Security now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""Home Camera"""; Flags: runhidden; RunOnceId: "EndTask"
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM camhub.exe"; Flags: runhidden; RunOnceId: "Kill"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM camtray.exe"; Flags: runhidden; RunOnceId: "KillTray"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""Home Camera Tray"""; Flags: runhidden; RunOnceId: "DeleteTrayTask"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""Home Camera"""; Flags: runhidden; RunOnceId: "DeleteTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Home Camera"""; Flags: runhidden; RunOnceId: "Firewall"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Home Camera away access"""; Flags: runhidden; RunOnceId: "FirewallAway"
@@ -105,26 +109,6 @@ end;
 function IsUpgrade: Boolean;
 begin
   Result := FileExists(ConfigFile);
-end;
-
-function EdgePath: String;
-begin
-  Result := ExpandConstant('{commonpf32}\Microsoft\Edge\Application\msedge.exe');
-  if not FileExists(Result) then
-    Result := ExpandConstant('{commonpf64}\Microsoft\Edge\Application\msedge.exe');
-end;
-
-{ The viewer opens in its own Edge window, like an app. Falls back to the default browser. }
-function ViewerProgram(Param: String): String;
-begin
-  if FileExists(EdgePath) then Result := EdgePath
-  else Result := 'http://localhost:{#Port}/';
-end;
-
-function ViewerParams(Param: String): String;
-begin
-  if FileExists(EdgePath) then Result := '--app=http://localhost:{#Port}/'
-  else Result := '';
 end;
 
 function StoragePath(Param: String): String;
@@ -224,6 +208,8 @@ begin
   { Stop a running copy so its files can be replaced. }
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/End /TN "Home Camera"', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM camhub.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  { The tray icon too (it is started again at the end, also after an automatic update). }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM camtray.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Result := '';
 end;
 
@@ -276,6 +262,8 @@ begin
   Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\tools\register-task.ps1') +
     '" -AppDir "' + ExpandConstant('{app}') + '" -Port {#Port}', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/Run /TN "Home Camera"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  { Put the tray icon back for whoever is signed in (an overnight update runs with nobody watching). }
+  Exec(ExpandConstant('{sys}\schtasks.exe'), '/Run /TN "Home Camera Tray"', '', SW_HIDE, ewWaitUntilTerminated, Code);
 
   if SetupCode = 3 then
     SuppressibleMsgBox(SetupResult, mbInformation, MB_OK, IDOK);

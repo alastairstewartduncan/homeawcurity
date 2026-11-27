@@ -4,6 +4,7 @@ import android.content.Context
 
 /** Where the recorder is and the sign-in token for notifications. */
 class Prefs(context: Context) {
+    val appContext: Context = context.applicationContext
     private val sp = context.getSharedPreferences("home_camera", Context.MODE_PRIVATE)
 
     init {

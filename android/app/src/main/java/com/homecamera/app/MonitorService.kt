@@ -205,6 +205,10 @@ class MonitorService : Service() {
             handleNightSummary(prefs, e)
             return
         }
+        if (type == "weekly_report") {
+            handleWeeklyReport(e)
+            return
+        }
         if (e.optBoolean("smart")) {
             handleSmart(prefs, e)
             return
@@ -432,6 +436,22 @@ class MonitorService : Service() {
         notify(ID_SUMMARY, n.build())
     }
 
+    /** Monday morning: last week in one line, for example "42 visitors, 3 strangers". Tap for the Stats tab. */
+    private fun handleWeeklyReport(e: JSONObject) {
+        val title = e.optString("title").ifEmpty { "Your week" }
+        val text = e.optString("text")
+        val n = NotificationCompat.Builder(this, CHANNEL_WEEKLY)
+            .setSmallIcon(R.drawable.ic_stat_camera)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSubText("Weekly report")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setContentIntent(openApp(this, "stats"))
+        notify(ID_WEEKLY, n.build())
+    }
+
     private fun fetchThumb(prefs: Prefs, clip: String): Bitmap? {
         if (clip.isEmpty()) return null
         return fetchPicture(prefs, "/api/clips/$clip/thumb")
@@ -488,6 +508,8 @@ class MonitorService : Service() {
         const val ID_DIGEST = 3
         const val ID_SUMMARY = 5
         const val CHANNEL_SUMMARY = "summary"
+        const val ID_WEEKLY = 6
+        const val CHANNEL_WEEKLY = "weekly"
         const val ACTION_STOP = "stop"
         const val EXTRA_CLIP = "clip"
 
@@ -524,6 +546,10 @@ class MonitorService : Service() {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_SUMMARY, "Night summary", NotificationManager.IMPORTANCE_DEFAULT)
                     .apply { description = "Each morning, the night's recordings as one short video" }
+            )
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_WEEKLY, "Weekly report", NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = "Each Monday, a short summary of the week before" }
             )
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_SMART, "Strangers, cars, parcels and loitering", NotificationManager.IMPORTANCE_HIGH)

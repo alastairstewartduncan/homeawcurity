@@ -402,9 +402,10 @@ class MainActivity : AppCompatActivity() {
         if (prefs.token.isNotEmpty()) startAlerts()
     }
 
-    /** A notification opens a recording, or (for "summary=<date>") a night summary. */
+    /** A notification opens a recording, a night summary ("summary=<date>") or the Stats tab ("stats"). */
     private fun pageFor(target: String) =
-        if (target.startsWith("summary=")) "${prefs.serverUrl}/#$target" else "${prefs.serverUrl}/#clip=$target"
+        if (target.startsWith("summary=") || target == "stats") "${prefs.serverUrl}/#$target"
+        else "${prefs.serverUrl}/#clip=$target"
 
     private fun exitFullScreen() {
         val v = fullView ?: return

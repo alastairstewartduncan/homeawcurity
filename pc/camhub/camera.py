@@ -806,7 +806,15 @@ class Camera:
         cols = np.count_nonzero(fg, axis=0)
         if cols.sum():
             self.motion_x = float((cols * np.arange(len(cols))).sum() / cols.sum() / max(1, len(cols) - 1))
-        return 100.0 * np.count_nonzero(fg) / area
+        level = 100.0 * np.count_nonzero(fg) / area
+        # Stats: where in the picture things move (hot spots).
+        hook = getattr(self, "on_motion_mask", None)
+        if hook is not None and level >= float(self.motion["min_area_percent"]):
+            try:
+                hook(fg)
+            except Exception:
+                pass
+        return level
 
     def _in_ignore_zone(self, box):
         x1, y1, x2, y2 = box

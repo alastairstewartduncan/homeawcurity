@@ -288,6 +288,24 @@ PC: nothing is sent anywhere.
   choose 7 to 365), and you can delete one entry, everything about one person or plate, or the
   whole log. People need *Recognise faces* on; plates work on their own and don't send alerts.
 
+## Stats and the weekly report
+
+The **Stats** tab (on a phone: **Who's been > Stats**) shows, for the last 7, 30 or 90 days:
+
+- **Busiest times**: a grid of the week by hour, counting people or all recordings.
+- **Visitors per day**: people, vehicles and parcels, and family compared with strangers
+  (when recognising family is on in the Smart tab).
+- **Hot spots**: a glow over each camera's picture where movement happens most. Older movement
+  fades over a few weeks; **Start again** clears it, for example after moving the camera.
+- **System health**: disk space left, how much is recorded a day and how many days of room that
+  leaves, and for each camera its uptime hour by hour, its response time on your network, and its
+  Wi-Fi signal if the camera reports it over ONVIF (many don't).
+- **Weekly report**: every Monday morning (08:00 unless you change it) your phone gets a summary
+  of the week before, such as "42 visitors, 3 strangers. Busiest: Saturday 2pm."
+
+Counts are kept (in `stats/stats.db` next to config.json) after the recordings themselves are
+deleted. The first start counts the recordings already on disk.
+
 ## Automatic updates
 
 The PC app checks the download page every few hours. A newer HomeCameraSetup.exe is downloaded,

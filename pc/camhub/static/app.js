@@ -43,7 +43,9 @@ function toast(text) {
 
 // ---------- tabs ----------
 function showTab(name) {
-  $$('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  // On phones Stats has no button of its own: it opens from Who's been, so that one stays lit.
+  const lit = name === 'stats' && matchMedia('(max-width: 760px)').matches ? 'seen' : name;
+  $$('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === lit));
   $$('main > section').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + name));
   // Only stream live video while the Live tab is open, to save bandwidth on phones.
   const grid = window.gridActive && window.gridActive();
@@ -57,6 +59,7 @@ function showTab(name) {
   if (name === 'ai' && window.loadAi) window.loadAi();
   if (name === 'smart' && window.loadSmart) window.loadSmart();
   if (name === 'seen' && window.loadSightings) window.loadSightings();
+  if (name === 'stats' && window.loadStats) window.loadStats();
 }
 $$('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 $('#logout').addEventListener('click', async () => {

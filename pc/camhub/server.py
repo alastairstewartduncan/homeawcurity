@@ -538,6 +538,9 @@ def create_app(hub):
     if getattr(hub, "summaries", None):
         from .summaries import add_routes as add_summary_routes
         add_summary_routes(app, hub)
+    if getattr(hub, "stats", None):
+        from .stats import add_routes as add_stats_routes
+        add_stats_routes(app, hub)
     if getattr(hub, "tv", None):
         from .tv import add_routes as add_tv_routes
         add_tv_routes(app, hub)

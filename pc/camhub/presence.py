@@ -24,8 +24,8 @@ log = logging.getLogger("camhub.presence")
 STALE_SECONDS = 12 * 3600
 # Smart alerts (smart.py) follow home/away too. Those about people carry person: true, so they
 # still alert when "people" alerts are on while someone's home.
-ALERT_TYPES = ("clip_started", "person", "stranger", "vehicle", "loitering", "line_crossed",
-               "parcel_arrived", "parcel_taken")
+ALERT_TYPES = ("clip_started", "person", "stranger", "returning_stranger", "vehicle", "loitering",
+               "line_crossed", "parcel_arrived", "parcel_taken")
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 DEFAULT_PRESENCE = {

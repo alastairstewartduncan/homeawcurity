@@ -155,6 +155,7 @@ object HomePresence {
     @Synchronized
     private fun send(context: Context): Boolean {
         val p = Prefs(context)
+        if (p.paired) Remote.ensure(p)
         if (p.serverUrl.isEmpty() || p.token.isEmpty() || p.atHome < 0) return false
         return try {
             val conn = URL("${p.serverUrl}/api/presence/report").openConnection() as HttpURLConnection

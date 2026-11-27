@@ -6,13 +6,70 @@ import android.content.Context
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("home_camera", Context.MODE_PRIVATE)
 
-    var serverUrl: String
+    init {
+        Remote.install(this)
+    }
+
+    /** The address typed in at setup (the PC at home, plain http). */
+    var homeAddress: String
         get() = sp.getString("server_url", "") ?: ""
         set(v) = sp.edit().putString("server_url", v.trim().trimEnd('/')).apply()
 
-    var token: String
+    /** The sign-in token from the password page at home. */
+    var loginToken: String
         get() = sp.getString("token", "") ?: ""
         set(v) = sp.edit().putString("token", v).apply()
+
+    /**
+     * Where to reach the PC now. Once the phone is set up for away access this is always the
+     * PC's encrypted port: its home address on the home network, the internet address elsewhere.
+     */
+    var serverUrl: String
+        get() = when {
+            !paired -> homeAddress
+            Remote.route == Remote.Route.AWAY && remoteAway.isNotEmpty() -> remoteAway
+            remoteHome.isNotEmpty() -> remoteHome
+            else -> remoteAway
+        }
+        set(v) {
+            homeAddress = v
+        }
+
+    /** The key sent with each request: this phone's own key once it is set up for away access. */
+    var token: String
+        get() = if (paired) remoteKey else loginToken
+        set(v) {
+            loginToken = v
+        }
+
+    // ---- away from home (see Remote.kt) -------------------------------------------------------
+
+    val paired: Boolean
+        get() = remoteKey.isNotEmpty() && remotePin.isNotEmpty()
+
+    /** This phone's own key, given by the PC when it was set up. */
+    var remoteKey: String
+        get() = sp.getString("remote_key", "") ?: ""
+        set(v) = sp.edit().putString("remote_key", v).apply()
+
+    /** SHA-256 of the PC's certificate, as hex. Nothing else is accepted on the encrypted port. */
+    var remotePin: String
+        get() = sp.getString("remote_pin", "") ?: ""
+        set(v) = sp.edit().putString("remote_pin", v).apply()
+
+    var remoteServerId: String
+        get() = sp.getString("remote_server_id", "") ?: ""
+        set(v) = sp.edit().putString("remote_server_id", v).apply()
+
+    /** https://<PC's home address>:<port> */
+    var remoteHome: String
+        get() = sp.getString("remote_home", "") ?: ""
+        set(v) = sp.edit().putString("remote_home", v.trimEnd('/')).apply()
+
+    /** https://<home's internet address>:<port> */
+    var remoteAway: String
+        get() = sp.getString("remote_away", "") ?: ""
+        set(v) = sp.edit().putString("remote_away", v.trimEnd('/')).apply()
 
     var lastEventId: Long
         get() = sp.getLong("last_event", 0)

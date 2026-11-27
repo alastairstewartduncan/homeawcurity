@@ -23,7 +23,7 @@ Windows recorder and an Android app.
 - **Phone alerts** with a snapshot when a recording starts, sent straight from your PC to the app.
 - **Pan and tilt** from the PC and phone, if the camera supports ONVIF PTZ.
 - **Looks after the disk**: deletes clips older than 30 days, and the oldest first if space runs low.
-- **Password protected**, with optional HTTPS for access from outside the house.
+- **Password protected**, with encrypted away-from-home access for phones you set up at home.
 
 ```
  Camera ──RTSP──▶ PC recorder (pc/) ──▶ C:\CameraRecordings
@@ -219,6 +219,20 @@ Everything here runs on the PC. No pictures are sent anywhere.
   "Faces seen lately"). Turn on *Recognise faces* and "person seen" alerts become **stranger**
   alerts, with no alert for the people you've named. If no face can be seen, you choose whether
   it still alerts.
+- **Known from behind.** Turn on *Also know them from behind or in the dark* and family are
+  also recognised by build, height, clothes and walk (OpenCV Zoo's YoutuReID model, on the PC).
+  It learns by itself: each time someone's face is recognised it keeps a picture of their build
+  and clothes. A body match only replaces "person seen, face not visible"; a clear face it
+  doesn't know is always a stranger. Height needs the camera kept still for a while to learn how
+  tall people look at each spot.
+- **Visitors.** Turn on *Remember visitors* and people you haven't named are remembered by face,
+  or by build, height and clothes when no face was seen. Someone back 3 times in 7 days (you can
+  change both) gives a **returning stranger** alert, and the Smart tab shows their visits side
+  by side with the clips. Mark someone as a regular (the postman) to stop alerts, say who they
+  are to make them family, or forget them. Visitors not seen for 30 days are forgotten.
+- **Our property.** Draw your drive, garden and doorstep on each camera. Bodies and visitors are
+  only learnt from people standing there, never from anyone in a privacy area or ignore zone,
+  which keeps neighbours and people on the pavement out of it (UK GDPR).
 - **Your cars.** Park your car in view and press *Add car* (add a night picture too). Turn on
   *Alert when an unknown vehicle stops* to hear about vehicles that stop and aren't yours. Cars
   driving past don't count. Cars are told apart by colour, so a car just like yours can fool it.
@@ -254,11 +268,35 @@ install the new one; updates are automatic from then on.
 
 ## 3. Watching from outside the house
 
-Point the app at an address that reaches the PC's port 8080 from the internet (for example a
-port forward on your router plus a dynamic DNS name). Because the recorder is then reachable by
-anyone, **use HTTPS**: set `server.https_cert` and `server.https_key` to a real certificate (such as
-a free Let's Encrypt one for your DNS name). Without one, your password and video cross the
-internet unencrypted. Five wrong passwords from one address locks it out for 15 minutes.
+Use **Settings > Away from home**. The phone app then connects straight to the PC, with no outside
+company, cloud service, VPN app or other extra software in between.
+
+1. On the PC (or the phone, at home), tick **Allow away-from-home access** and press **Save**.
+2. The PC asks your router to open the port (UPnP). If your router doesn't do that, the card shows
+   the port-forwarding rule to add by hand: TCP port 8443 to the PC.
+3. On each phone, while it's on your home Wi-Fi, open the app, go to **Settings > Away from home**
+   and press **Set up this phone for away from home**.
+
+From then on the phone uses the PC's home address when it's home and your home's internet address
+when it's out, switching by itself.
+
+How it is kept safe:
+- Away access uses its own port, which is **encrypted only** (TLS 1.2 or 1.3). It uses a certificate
+  this PC makes for itself. When a phone is set up it is given the certificate's fingerprint, and it
+  accepts nothing else, so nobody can pretend to be your PC, even on public Wi-Fi.
+- Each phone gets **its own key** (only a hash is kept on the PC). Remove a lost phone in Settings and
+  it can't connect any more. You're told on your phones whenever a new phone is set up.
+- The away port **never shows the password page**. Without a phone's key every request gets a plain
+  "not found", and an address that keeps trying is blocked for an hour. Settings for away access
+  can only be changed at home.
+- The home's internet address is read from your router, so no website is asked. If your provider
+  changes it, phones pick up the new one the next time they're home. To avoid that, ask your provider
+  for a fixed address, or enter a name your router keeps up to date under **Your own address**.
+- Some providers share one internet address between customers (carrier-grade NAT). Then nothing from
+  outside can reach your router, and the card says so. Ask your provider for a public IPv4 address.
+
+The older way still works for a web browser: a port forward to port 8080 with your own certificate
+in `server.https_cert` and `server.https_key`.
 
 ## Troubleshooting
 

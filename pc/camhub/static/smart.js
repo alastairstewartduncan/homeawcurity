@@ -1,5 +1,5 @@
 'use strict';
-// The Smart tab: family faces, your cars, parcels, lines and loitering, and recent smart alerts.
+// The Smart tab: family faces and bodies, visitors, your cars, parcels, lines and loitering, and recent smart alerts.
 // Uses $, api, esc, toast and showTab from app.js.
 (function () {
   const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
@@ -46,7 +46,7 @@
   }
   function render() {
     const wrap = $('#smart'); wrap.innerHTML = '';
-    wrap.append(facesCard(), carsCard());
+    wrap.append(facesCard(), visitorsCard(), carsCard());
     for (const [id, cam] of Object.entries(data.cameras)) wrap.appendChild(rulesCard(id, cam));
     wrap.appendChild(activityCard());
   }
@@ -79,6 +79,17 @@
         <label class="check">Matching
           <select class="f-strict"><option value="relaxed">Relaxed</option><option value="normal">Normal</option><option value="strict">Strict</option></select></label>
       </div>
+      <div class="smart-opts">
+        <label class="check"><input type="checkbox" class="b-on" ${data.settings.bodies.enabled ? 'checked' : ''} ${data.bodies_available ? '' : 'disabled'}>
+          Also know them from behind or in the dark, by build, height, clothes and walk</label>
+        <label class="check">Matching
+          <select class="b-strict"><option value="relaxed">Relaxed</option><option value="normal">Normal</option><option value="strict">Strict</option></select></label>
+      </div>
+      <p class="muted small" style="margin-top:0">Each time a face is recognised, the PC keeps a picture of that person's build and
+        clothes, so it learns by itself. When someone's back is to the camera and they match, there's no "person seen" alert.
+        A clear face it doesn't know always counts as a stranger, whatever they're wearing. Needs face recognition on.</p>
+      ${data.bodies_available ? '' : `<p class="warn-box">Body recognition isn't installed on this PC yet. Install the newest
+        HomeCameraSetup.exe and it will be added.</p>`}
       <h3>People you know</h3>
       <div class="people"></div>
       <div class="smart-add">
@@ -94,23 +105,30 @@
     </div>`);
     q('.f-noface', card).value = f.no_face;
     q('.f-strict', card).value = f.strictness;
+    q('.b-strict', card).value = data.settings.bodies.strictness;
     const save = async () => {
       try {
         await send('/api/smart/settings', 'PUT', {faces: {enabled: q('.f-on', card).checked,
-          no_face: q('.f-noface', card).value, strictness: q('.f-strict', card).value}});
+          no_face: q('.f-noface', card).value, strictness: q('.f-strict', card).value},
+          bodies: {enabled: q('.b-on', card).checked, strictness: q('.b-strict', card).value}});
         toast('Saved');
       } catch (e) { toast('Could not save: ' + e.message); }
     };
-    qa('.f-on, .f-noface, .f-strict', card).forEach(i => i.addEventListener('change', save));
+    qa('.f-on, .f-noface, .f-strict, .b-on, .b-strict', card).forEach(i => i.addEventListener('change', save));
 
     const people = q('.people', card);
     if (!data.people.length) people.innerHTML = '<p class="muted">Nobody yet.</p>';
     for (const p of data.people) {
       const row = h(`<div class="known-row">
         <b class="kname">${esc(p.name)}</b>
-        <span class="thumbs">${p.faces.map(x => `<span class="thumb-x"><img src="${pic(x.pic)}" alt="">
+        <span class="thumbs">${p.faces.map(x => `<span class="thumb-x">${x.pic ? `<img src="${pic(x.pic)}" alt="">` : '<span class="nopic">☺</span>'}
           <button data-f="${esc(x.id)}" title="Remove this photo" aria-label="Remove this photo">✕</button></span>`).join('')}
           ${p.faces.length ? '' : '<span class="muted">No photos yet</span>'}</span>
+        ${(p.bodies || []).length ? `<span class="thumbs bodies" title="Learnt by itself, for knowing ${esc(p.name)} from behind">
+          <span class="muted small">From behind:</span>${p.bodies.filter(x => x.pic).slice(-8).map(x => `<span class="thumb-x body">
+          <img src="${pic(x.pic)}" alt=""><i>${x.night ? '☾' : '☀'}</i>
+          <button data-b="${esc(x.id)}" title="Remove this picture" aria-label="Remove this picture">✕</button></span>`).join('')}
+          <span class="muted small">${p.bodies.length} kept</span></span>` : ''}
         <label class="file-btn">＋ Photo<input type="file" accept="image/*" multiple hidden></label>
         <button class="ren">Rename</button><button class="danger del">Remove</button></div>`);
       q('input[type=file]', row).addEventListener('change', async (ev) => {
@@ -122,7 +140,8 @@
         if (added) { toast(`Added ${added} photo${added > 1 ? 's' : ''} of ${p.name}`); render(); }
       });
       qa('.thumb-x button', row).forEach(b => b.addEventListener('click', async () => {
-        try { await send(`/api/smart/people/${p.id}/photos/${b.dataset.f}`, 'DELETE'); render(); } catch (e) { toast(e.message); }
+        const path = b.dataset.b ? `bodies/${b.dataset.b}` : `photos/${b.dataset.f}`;
+        try { await send(`/api/smart/people/${p.id}/${path}`, 'DELETE'); render(); } catch (e) { toast(e.message); }
       }));
       q('.ren', row).addEventListener('click', async () => {
         const name = prompt('New name', p.name); if (!name) return;
@@ -182,6 +201,89 @@
       });
       grid.appendChild(tile);
     }
+  }
+
+  // ---------- visitors who keep coming back ----------
+  function visitorsCard() {
+    const vs = data.settings.visitors;
+    const nums = (list, v, unit) => list.map(n => `<option value="${n}" ${n === v ? 'selected' : ''}>${n} ${unit}</option>`).join('');
+    const card = h(`<div class="card wide smart-card">
+      <h2>Visitors</h2>
+      <p class="muted" style="margin-top:0">The PC remembers people it doesn't know: their face if it was seen, otherwise their
+        build, height and clothes. Someone who keeps coming back is flagged as a <b>returning stranger</b>, with their visits
+        side by side. Only people standing on your property are remembered (draw it on each camera below), never anyone in a
+        privacy area, and visitors are forgotten after a while. Nothing leaves this PC.</p>
+      <div class="smart-opts">
+        <label class="check"><input type="checkbox" class="vi-on" ${vs.enabled ? 'checked' : ''}> Remember visitors and flag returning strangers</label>
+        <label class="check">Flag after <select class="vi-visits">${nums([2, 3, 4, 5, 7, 10], vs.visits, 'visits')}</select></label>
+        <label class="check">within <select class="vi-days">${nums([1, 2, 3, 7, 14, 30], vs.days, 'days')}</select></label>
+        <label class="check">Forget after <select class="vi-forget">${nums([7, 14, 30, 60, 90], vs.forget_days, 'days')}</select> unseen</label>
+      </div>
+      ${data.settings.faces.enabled ? '' : '<p class="warn-box">Turn on "Recognise faces" above first: it\'s how the PC tells family from visitors.</p>'}
+      <div class="visitors"></div>
+    </div>`);
+    const save = async () => {
+      try {
+        await send('/api/smart/settings', 'PUT', {visitors: {enabled: q('.vi-on', card).checked,
+          visits: +q('.vi-visits', card).value, days: +q('.vi-days', card).value, forget_days: +q('.vi-forget', card).value}});
+        toast('Saved'); render();
+      } catch (e) { toast('Could not save: ' + e.message); }
+    };
+    qa('.vi-on, .vi-visits, .vi-days, .vi-forget', card).forEach(i => i.addEventListener('change', save));
+    const list = q('.visitors', card);
+    if (!data.visitors.length) {
+      list.innerHTML = `<p class="muted">${vs.enabled ? 'Nobody yet. Unknown visitors appear here after they leave.' : 'Turn this on to start remembering visitors.'}</p>`;
+      return card;
+    }
+    const people = data.people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    for (const v of data.visitors) {
+      const returning = !v.regular && v.recent >= vs.visits;
+      const name = v.label || `Visitor ${v.number}`;
+      const row = h(`<div class="visitor ${returning ? 'returning' : ''}">
+        <div class="visitor-head">
+          ${v.pic ? `<img class="visitor-pic" src="${pic(v.pic)}" alt="">` : '<span class="visitor-pic nopic">?</span>'}
+          <div class="visitor-info">
+            <b>${esc(name)}</b> ${returning ? '<span class="badge warn">Returning stranger</span>' : ''}
+            ${v.regular ? '<span class="badge">Regular, no alerts</span>' : ''}
+            <div class="muted small">${v.recent} visit${v.recent === 1 ? '' : 's'} in the last ${vs.days} days · ${v.total} in all ·
+              last seen ${esc(when(v.last))} · ${v.face ? 'face seen' : 'known by build and clothes only'}</div>
+          </div>
+        </div>
+        <div class="visit-strip">${v.visits.map(x => `<div class="visit-tile">
+          <img src="${x.clip ? `/api/clips/${encodeURIComponent(x.clip)}/thumb` : (x.pic ? pic(x.pic) : '')}" alt="" loading="lazy"
+            ${x.pic ? `data-fallback="${esc(pic(x.pic))}"` : ''}>
+          <div class="muted small">${esc(when(x.time))} · ${esc(x.camera_name || x.camera || '')}</div>
+          ${x.clip ? `<button class="watch" data-clip="${esc(x.clip)}">Watch</button>` : ''}</div>`).join('')}</div>
+        <div class="visitor-actions">
+          <input class="vi-label" value="${esc(v.label)}" placeholder="A note, e.g. Postman" maxlength="40" aria-label="Note">
+          <label class="check"><input type="checkbox" class="vi-regular" ${v.regular ? 'checked' : ''}> Regular (no alerts)</label>
+          <select class="vi-who"><option value="">This is someone we know…</option>${people}<option value="__new">Someone new…</option></select>
+          <button class="danger vi-forget-one">Forget</button>
+        </div></div>`);
+      qa('img[data-fallback]', row).forEach(img => img.addEventListener('error', () => {
+        if (img.src !== new URL(img.dataset.fallback, location.href).href) img.src = img.dataset.fallback;
+      }, {once: true}));
+      qa('.watch', row).forEach(b => b.addEventListener('click', () => { location.hash = 'clip=' + b.dataset.clip; location.reload(); }));
+      const upd = async (body) => { try { await send(`/api/smart/visitors/${v.id}`, 'PUT', body); toast('Saved'); render(); } catch (e) { toast(e.message); } };
+      q('.vi-label', row).addEventListener('change', (e) => upd({label: e.target.value}));
+      q('.vi-regular', row).addEventListener('change', (e) => upd({regular: e.target.checked}));
+      q('.vi-who', row).addEventListener('change', async (ev) => {
+        let body = {id: ev.target.value};
+        if (!body.id) return;
+        if (body.id === '__new') {
+          const nm = prompt('Their name'); if (!nm) { ev.target.value = ''; return; }
+          body = {name: nm};
+        }
+        try { await send(`/api/smart/visitors/${v.id}/family`, 'POST', body); toast('Saved. They\'re family now.'); render(); }
+        catch (e) { toast(e.message); }
+      });
+      q('.vi-forget-one', row).addEventListener('click', async () => {
+        if (!confirm(`Forget ${name} and their pictures?`)) return;
+        try { await send(`/api/smart/visitors/${v.id}`, 'DELETE'); render(); } catch (e) { toast(e.message); }
+      });
+      list.appendChild(row);
+    }
+    return card;
   }
 
   // ---------- your cars ----------
@@ -264,15 +366,16 @@
 
   function rulesCard(camId, cam) {
     const rules = {parcel: JSON.parse(JSON.stringify(cam.parcel)), lines: JSON.parse(JSON.stringify(cam.lines)),
-      areas: JSON.parse(JSON.stringify(cam.areas))};
+      areas: JSON.parse(JSON.stringify(cam.areas)), property: JSON.parse(JSON.stringify(cam.property || []))};
     let tool = 'line', draft = [], drag = null;
     const ps = cam.parcel_status || {};
     const card = h(`<div class="card wide smart-card">
-      <h2>Parcels, lines and loitering: ${esc(cam.name)}</h2>
+      <h2>Parcels, lines, loitering and property: ${esc(cam.name)}</h2>
       <p class="muted" style="margin-top:0">Pick what to draw, then draw on the picture. These work best with the camera
         kept still (patrol off), because the drawings stay in the same place on the picture.</p>
       <div class="seg smart-tools">
         <button data-t="line">Line</button><button data-t="area">Loitering area</button><button data-t="parcel">Doorstep</button>
+        <button data-t="property">Our property</button>
       </div>
       <p class="muted small tool-help"></p>
       <div class="zone-editor smart-editor"><img alt=""><canvas></canvas></div>
@@ -285,6 +388,11 @@
         <select class="pc-taken"><option value="away">alert only if nobody's home</option><option value="always">always alert</option></select></label>
       </div>
       <div class="parcel-status"></div>
+
+      <h3>Our property</h3>
+      <p class="muted small" style="margin-top:0">People's build and clothes, and visitors, are only learnt from people standing
+        here, so neighbours and passers-by on the pavement aren't remembered. Leave it empty to use the whole picture.</p>
+      <div class="property-status"></div>
 
       <h3>Lines</h3>
       <p class="muted small" style="margin-top:0">Get an alert when someone (or a car) crosses the line, such as into the drive.</p>
@@ -322,6 +430,7 @@
       line: 'Line: press where it starts and drag to where it ends (or tap the two ends). The arrow shows the "in" direction.',
       area: 'Loitering area: drag across the picture to draw a box, or tap points around any shape and press Finish area.',
       parcel: 'Doorstep: drag a box (or tap points around it) where parcels are left. Drawing again replaces it.',
+      property: 'Our property: tap points around your drive, garden and doorstep (not the pavement) and press Finish area, or drag a box. Drawing again replaces it.',
     };
     function setTool(t) {
       tool = t; draft = [];
@@ -367,6 +476,11 @@
       canvas.width = Math.max(1, r.width * devicePixelRatio); canvas.height = Math.max(1, r.height * devicePixelRatio);
       const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
       ctx.clearRect(0, 0, W, H); ctx.lineWidth = 2 * devicePixelRatio;
+      if (rules.property.length) {
+        poly(ctx, rules.property, W, H, true); ctx.fillStyle = 'rgba(78,161,255,.10)'; ctx.fill();
+        ctx.strokeStyle = '#4ea1ff'; ctx.setLineDash([3 * devicePixelRatio, 3 * devicePixelRatio]); ctx.stroke(); ctx.setLineDash([]);
+        label(ctx, 'Our property', rules.property[0][0] * W + 4, rules.property[0][1] * H + 16 * devicePixelRatio);
+      }
       if (rules.parcel.area.length) {
         poly(ctx, rules.parcel.area, W, H, true); ctx.fillStyle = 'rgba(255,170,50,.18)'; ctx.fill();
         ctx.strokeStyle = '#ffaa32'; ctx.setLineDash([6 * devicePixelRatio, 4 * devicePixelRatio]); ctx.stroke(); ctx.setLineDash([]);
@@ -395,6 +509,7 @@
     const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     function addShape(pts) {
       if (tool === 'parcel') { rules.parcel.area = pts; rules.parcel.enabled = true; q('.pc-on', card).checked = true; }
+      else if (tool === 'property') rules.property = pts;
       else if (tool === 'area') rules.areas.push({id: uid('area'), name: `Area ${rules.areas.length + 1}`, points: pts, seconds: 30, what: 'person', enabled: true});
       lists(); draw();
     }
@@ -433,6 +548,11 @@
 
     const opts = (list, v) => list.map(([k, t]) => `<option value="${k}" ${String(k) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('');
     function lists() {
+      const P = q('.property-status', card);
+      P.innerHTML = rules.property.length ? '<span>Drawn. Press Save to keep it.</span> <button class="clear-prop">Clear</button>'
+        : '<span class="muted">Not drawn: the whole picture counts. Choose Our property above and draw it.</span>';
+      const cp = q('.clear-prop', P);
+      if (cp) cp.addEventListener('click', () => { rules.property = []; lists(); draw(); });
       const L = q('.lines', card); L.innerHTML = rules.lines.length ? '' : '<span class="muted">No lines yet. Choose Line above and draw one.</span>';
       rules.lines.forEach((ln, i) => {
         const row = h(`<div class="rule-row">

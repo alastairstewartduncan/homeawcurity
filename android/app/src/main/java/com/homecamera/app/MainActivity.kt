@@ -41,6 +41,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -82,9 +83,23 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0F1216")) }
+        root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0B1020")) }
         setContentView(root)
         WindowCompat.setDecorFitsSystemWindows(window, true)
+        // Android 15 draws apps under the status bar and the gesture bar whatever we ask, so keep
+        // the pages clear of them ourselves (otherwise the bottom tabs sit under the gesture bar).
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime()
+            )
+            if (fullView == null) v.setPadding(bars.left, bars.top, bars.right, bars.bottom) else v.setPadding(0, 0, 0, 0)
+            insets
+        }
+        // Light status bar and gesture bar icons on the dark background.
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -280,7 +295,7 @@ class MainActivity : AppCompatActivity() {
         }
         val w = WebView(this)
         web = w
-        w.setBackgroundColor(Color.parseColor("#0F1216"))
+        w.setBackgroundColor(Color.parseColor("#0B1020"))
         w.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -349,6 +364,7 @@ class MainActivity : AppCompatActivity() {
                 fullView = view
                 fullCallback = callback
                 root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                ViewCompat.requestApplyInsets(root)
                 WindowInsetsControllerCompat(window, root).apply {
                     hide(WindowInsetsCompat.Type.systemBars())
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -392,6 +408,7 @@ class MainActivity : AppCompatActivity() {
         fullCallback?.onCustomViewHidden()
         fullCallback = null
         WindowInsetsControllerCompat(window, root).show(WindowInsetsCompat.Type.systemBars())
+        ViewCompat.requestApplyInsets(root)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 

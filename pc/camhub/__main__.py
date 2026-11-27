@@ -64,6 +64,9 @@ class Hub:
         from .smart import SmartHub
         self.smart = SmartHub(self)
         self.events.enrich = lambda e: self.presence.tag_event(self.smart.tag_event(e))
+        # Stats: activity, visitors, hot spots, system health and the weekly report.
+        from .stats import Stats
+        self.stats = Stats(self)
         self.cameras = {}
         self.started = False
         for c in config.cameras:
@@ -98,6 +101,8 @@ class Hub:
         cam = Camera(c, self.storage, self.events, self.detector, ptz)
         if getattr(self, "smart", None) is not None:
             cam.smart = self.smart.watcher(cam)
+        if getattr(self, "stats", None) is not None:
+            self.stats.attach(cam)
         return cam
 
     def start(self):
@@ -107,6 +112,7 @@ class Hub:
         self.backup.start()
         self.agents.start()
         self.summaries.start()
+        self.stats.start()
         self.updater.start()
         self.home_links.start()
         for cam in self.cameras.values():
@@ -116,6 +122,7 @@ class Hub:
         self.health.stop()
         self.agents.stop()
         self.summaries.stop()
+        self.stats.stop()
         self.tv.stop_all()
         self.updater.stop()
         self.home_links.stop()

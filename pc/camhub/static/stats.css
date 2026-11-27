@@ -1,0 +1,122 @@
+/* The Stats tab: busiest times, visitors per day, hot spots, system health and the weekly report. */
+:root {
+  --s1: #338ced; --s2: #e76624; --s3: #00a888;              /* series: people/family, vehicles/strangers, parcels */
+  --st-ok: #0aac23; --st-warn: #fbb315; --st-bad: #dc3c3d; --st-none: #2a3550;
+}
+:root[data-theme="light"] { --s1: #257de0; --s2: #f47230; --s3: #00b894; --st-none: #dfe5ef; }
+@media (prefers-color-scheme: light) {
+  :root[data-theme="auto"] { --s1: #257de0; --s2: #f47230; --s3: #00b894; --st-none: #dfe5ef; }
+}
+
+/* Phones: Who's been | Stats switch at the top of both. Wide screens have a Stats tab instead. */
+.st-switch { display: none; margin: 0 0 12px; }
+@media (max-width: 760px) {
+  nav button.wide-only { display: none; }
+  .st-switch { display: inline-flex; width: 100%; }
+  .st-switch button { flex: 1; }
+}
+
+.st-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.st-bar h2 { margin: 0; }
+.st-bar p { margin: 2px 0 0; font-size: 13px; }
+.st-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.st-controls select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); }
+.st-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.st-head h2 { margin: 0; }
+.st-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 10px 0; }
+.st-row input[type=time] { padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); }
+
+/* Headline numbers */
+.st-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.card.st-tiles { padding: 12px; }
+.st-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--panel-2); min-width: 0; }
+.st-tile > span { font-size: 12.5px; }
+.st-tile b { font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.st-tiles.small .st-tile b { font-size: 19px; }
+.st-tile.busiest b { font-size: 22px; }
+
+/* Busiest times: 7 days by 24 hours */
+.st-week { display: grid; grid-template-columns: 34px repeat(24, minmax(0, 1fr)); gap: 2px; align-items: center; }
+.st-week i, .st-scale i { display: block; aspect-ratio: 1.3; border-radius: 3px; background: var(--panel-2); position: relative; }
+.st-week i::after, .st-scale i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--accent); opacity: 0; }
+.st-week .l1::after, .st-scale .l1::after { opacity: .25; }
+.st-week .l2::after, .st-scale .l2::after { opacity: .5; }
+.st-week .l3::after, .st-scale .l3::after { opacity: .75; }
+.st-week .l4::after, .st-scale .l4::after { opacity: 1; }
+.st-week i:hover { outline: 2px solid var(--text); outline-offset: 0; z-index: 1; }
+.st-dow { font-size: 12px; color: var(--muted); }
+.st-hr { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: visible; }
+.st-scale { display: flex; gap: 3px; align-items: center; justify-content: flex-end; margin-top: 10px; font-size: 12px; }
+.st-scale i { width: 16px; }
+.st-scale span { margin: 0 4px; }
+
+/* Bar and line charts */
+.st-chart { width: 100%; overflow: hidden; }
+.st-chart svg { display: block; }
+.st-chart .grid { stroke: var(--line); stroke-width: 1; }
+.st-chart .axis { fill: var(--muted); font-size: 11px; }
+.st-chart .s1 { fill: var(--s1); } .st-chart .s2 { fill: var(--s2); } .st-chart .s3 { fill: var(--s3); }
+.st-chart .hit { fill: transparent; }
+.st-chart .hit:hover { fill: var(--text); fill-opacity: .05; }
+.st-chart .line { fill: none; stroke: var(--s1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.st-chart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.st-chart .dotm { fill: var(--s1); stroke: var(--panel); stroke-width: 2; }
+.st-legend, .st-strip-key { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; margin: 0 0 8px; }
+.st-legend span, .st-strip-key span { display: inline-flex; align-items: center; gap: 6px; }
+i.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+i.sw.s1 { background: var(--s1); } i.sw.s2 { background: var(--s2); } i.sw.s3 { background: var(--s3); }
+i.sw.ok { background: var(--st-ok); } i.sw.warn { background: var(--st-warn); } i.sw.bad { background: var(--st-bad); } i.sw.none { background: var(--st-none); }
+.st-table { margin-top: 12px; font-size: 13px; }
+.st-table summary { cursor: pointer; color: var(--muted); }
+.st-table table { width: 100%; border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.st-table th, .st-table td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.st-table th:first-child, .st-table td:first-child { text-align: left; }
+
+/* Tooltip */
+.st-tip { position: fixed; z-index: 100; pointer-events: none; max-width: 260px; padding: 8px 10px; border-radius: 8px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px; line-height: 1.45; }
+.st-tip i.sw { margin-right: 6px; vertical-align: -1px; }
+
+/* Hot spots */
+.st-spots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.st-spot { margin: 0; }
+.st-spot-pic { position: relative; border-radius: var(--radius-sm); overflow: hidden; background: #000; aspect-ratio: 16 / 9; }
+.st-spot-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.st-spot-pic .snap { filter: saturate(.6) brightness(.8); }
+.st-spot-pic .glow { mix-blend-mode: screen; transition: opacity .2s; }
+.st-spot-pic .nopic { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.no-glow .st-spot-pic .glow { opacity: 0; }
+.no-glow .st-spot-pic .snap { filter: none; }
+.st-spot figcaption { display: flex; justify-content: space-between; align-items: center; padding-top: 6px; }
+button.small { padding: 4px 10px; font-size: 13px; }
+
+/* System health */
+.st-disk { margin-bottom: 6px; }
+.st-meter { display: block; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 4px 0 2px; }
+.st-meter i { display: block; height: 100%; background: var(--st-ok); border-radius: 99px; }
+.st-meter i.warn { background: var(--st-warn); } .st-meter i.bad { background: var(--st-bad); }
+.st-cam { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 4px; }
+.st-cam h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 15px; }
+.st-cam h3 .muted { font-weight: 400; font-size: 13px; }
+.st-cam .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; align-self: center; }
+.st-cam .dot.ok { background: var(--st-ok); } .st-cam .dot.bad { background: var(--st-bad); }
+.st-label { font-size: 12.5px; margin: 14px 0 6px; }
+.st-strip { display: grid; grid-template-columns: repeat(168, minmax(0, 1fr)); gap: 1px; height: 22px; }
+.st-strip i { display: block; border-radius: 1px; }
+.st-strip i.ok { background: var(--st-ok); } .st-strip i.warn { background: var(--st-warn); }
+.st-strip i.bad { background: var(--st-bad); } .st-strip i.none { background: var(--st-none); }
+.st-strip i:hover { outline: 2px solid var(--text); position: relative; z-index: 1; }
+.st-strip-key { margin-top: 6px; }
+
+/* Weekly report */
+.wr-preview-box, .wr-list li { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--panel-2); }
+.wr-preview-box { border-left: 3px solid var(--accent); }
+.wr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wr-list .muted, .wr-preview-box .muted { font-size: 12.5px; }
+
+@media (max-width: 600px) {
+  .st-week { grid-template-columns: 28px repeat(24, minmax(0, 1fr)); gap: 1px; }
+  .st-week i { border-radius: 2px; aspect-ratio: .9; }
+  .st-hr { font-size: 9px; }
+  .st-tile b { font-size: 22px; }
+}

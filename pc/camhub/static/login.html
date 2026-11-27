@@ -3,21 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0B1020">
 <title>A.S.D Home Security</title>
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="/static/style.css">
 <style>
-  .login { max-width: 360px; margin: 12vh auto; padding: 24px; }
-  .login h1 { font-size: 22px; margin: 0 0 4px; display: flex; gap: 10px; align-items: center; }
-  .login input { width: 100%; padding: 12px; margin: 16px 0 12px; border-radius: 8px;
+  body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+  .login { width: 100%; max-width: 380px; padding: 32px 28px 24px; text-align: center; }
+  .login .logo { width: 72px; height: 72px; display: block; margin: 0 auto 14px;
+    filter: drop-shadow(0 10px 24px rgba(59,130,246,.45)); }
+  .login h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: .05em; line-height: 1.1; }
+  .login .tag { font-size: 11px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase; color: var(--accent-2); margin-bottom: 18px; }
+  .login input { width: 100%; padding: 13px 14px; margin: 18px 0 12px; border-radius: 12px;
     border: 1px solid var(--line); background: var(--panel-2); }
-  .login button { width: 100%; padding: 12px; }
+  .login button { width: 100%; padding: 13px; border-radius: 12px; font-size: 16px; }
   .error { color: var(--rec); min-height: 22px; margin-top: 10px; }
+  #server { font-size: 13px; }
 </style>
 </head>
 <body>
 <form class="card login" id="f">
-  <h1><img src="/favicon.svg" width="28" height="28" alt=""> A.S.D Home Security</h1>
+  <img class="logo" src="/favicon.svg" alt="">
+  <h1>A.S.D</h1>
+  <div class="tag">Home Security</div>
   <div class="muted">Enter your password to see your cameras.</div>
   <input type="password" id="p" autocomplete="current-password" placeholder="Password" autofocus required>
   <button class="primary" type="submit">Sign in</button>

@@ -190,6 +190,7 @@ class MonitorService : Service() {
         if (type == "presence") {
             prefs.presenceText = presenceLine(e)
             notify(ID_SERVICE, ongoingNotification())
+            CameraWidget.presence(this, e.optString("where"), e.optString("alerts"))
             return
         }
         if (type == "ai_alert") {
@@ -221,6 +222,7 @@ class MonitorService : Service() {
             SimpleDateFormat("HH:mm", Locale.UK).format(Date())
         }
         val picture = fetchThumb(prefs, clip)
+        CameraWidget.alert(this, if (person) "Person at $cam" else "Movement at $cam", clip, picture)
         val n = NotificationCompat.Builder(this, if (person) CHANNEL_PERSON else CHANNEL_MOTION)
             .setSmallIcon(R.drawable.ic_stat_camera)
             .setContentTitle(if (person) "$cam: person seen" else "$cam: movement")
@@ -337,6 +339,7 @@ class MonitorService : Service() {
         val clip = e.optString("clip")
         val run = e.optString("run")
         val picture = if (run.isNotEmpty()) fetchPicture(prefs, "/api/ai/runs/$run/picture.jpg") else null
+        CameraWidget.alert(this, "$cam: $message", clip.ifEmpty { null }, picture)
         val n = NotificationCompat.Builder(this, CHANNEL_AI)
             .setSmallIcon(R.drawable.ic_stat_camera)
             .setContentTitle("$cam: $message")
@@ -368,6 +371,7 @@ class MonitorService : Service() {
         val clip = e.optString("clip")
         val path = e.optString("picture")
         val picture = if (path.startsWith("/")) fetchPicture(prefs, path) else fetchThumb(prefs, clip)
+        CameraWidget.alert(this, if (message.isNotEmpty()) "$title: $message" else title, clip.ifEmpty { null }, picture)
         val n = NotificationCompat.Builder(this, CHANNEL_SMART)
             .setSmallIcon(R.drawable.ic_stat_camera)
             .setContentTitle(title)

@@ -1,3 +1,5 @@
+<p align="center"><img src="branding/logo-horizontal.svg" alt="A.S.D Home Security" width="300"></p>
+
 # A.S.D Home Security
 
 Motion recording, live view and playback for an IP camera (built for the Hiseeu WHC905), with a
@@ -128,6 +130,20 @@ numbers and dashes only).
 The app shows a quiet "Watching for alerts" notification while it listens. That's Android's rule
 for apps that keep a connection open; you can hide it by long-pressing it and turning off the
 "Background connection" category.
+
+### Home screen widget
+
+Long-press an empty spot on your home screen, choose **Widgets**, and drag **A.S.D Home Security**
+onto the screen. It shows:
+
+- the camera's latest picture (tap it, or the play button, to open live view; tap the refresh
+  button for a new picture). With more than one camera, tap the camera's name for the next one.
+- **Home** or **Away** (tap to switch between automatic, Home and Away; see Home and away below)
+- the last alert, with its picture (tap it to watch the recording)
+
+The widget refreshes every 30 minutes, when you tap refresh, and straight away when an alert
+arrives. It uses the same connection as the app, so it works away from home too once the phone is
+set up for that.
 
 ## Home and away
 
@@ -308,6 +324,10 @@ in `server.https_cert` and `server.https_key`.
   `onvif` section and that ONVIF is on in the camera's settings.
 
 ## For developers
+
+The logo files are in `branding/` (`logo-mark.svg` is the app icon, `logo-horizontal.svg` the
+logo with the name). The installer icon and side pictures in `pc/installer` were made from them.
+
 
 - Installer: `pc/installer` (PyInstaller recipe and Inno Setup script), built and test-installed
   on Windows by GitHub Actions.

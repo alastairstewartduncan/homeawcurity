@@ -392,3 +392,43 @@ def test_live_picture_uses_main_stream_when_small_one_is_empty(tmp_path, monkeyp
     cam.wait_frame(0, timeout=5)
     assert cam._frame is not None and cam._frame.shape[1] == 640
     cam.stop()
+
+
+def test_delete_several_recordings(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from camhub.server import create_app
+
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps({
+        "server": {"password_hash": auth.hash_password("pw123456")},
+        "storage": {"path": str(tmp_path / "rec")},
+        "cameras": [{"id": "front", "name": "Front"}]}))
+    config = Config(str(cfg_path))
+
+    class FakeHub:
+        pass
+
+    hub = FakeHub()
+    hub.config = config
+    hub.storage = Storage(config)
+    hub.cameras = {}
+    day = tmp_path / "rec" / "front" / "2026-11-27"
+    day.mkdir(parents=True)
+    for t in ("080000", "090000", "100000"):
+        for ext in (".mp4", ".jpg", ".json"):
+            (day / (t + ext)).write_bytes(b"{}" if ext == ".json" else b"x")
+    client = TestClient(create_app(hub))
+    assert client.post("/api/clips/delete", json={"ids": ["front_20261127_080000"]}).status_code == 401
+    assert client.post("/api/login", json={"password": "pw123456"}).status_code == 200
+    assert client.post("/api/clips/delete", json={"ids": []}).status_code == 400
+    assert client.post("/api/clips/delete", json={"ids": "nope"}).status_code == 400
+    r = client.post("/api/clips/delete", json={"ids": [
+        "front_20261127_080000", "front_20261127_090000", "front_20261127_080000", "../x_20261127_100000"]})
+    assert r.status_code == 200
+    assert r.json()["deleted"] == ["front_20261127_080000", "front_20261127_090000"]
+    assert r.json()["missing"] == ["../x_20261127_100000"]
+    assert sorted(p.name for p in day.iterdir()) == ["100000.jpg", "100000.json", "100000.mp4"]
+    # The last one empties the day, and its folder goes too.
+    assert client.post("/api/clips/delete", json={"ids": ["front_20261127_100000"]}).json()["deleted"]
+    assert not day.exists()

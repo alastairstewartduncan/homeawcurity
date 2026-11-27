@@ -505,6 +505,23 @@ def create_app(hub):
         return FileResponse(clip_file(clip_id, ".jpg"), media_type="image/jpeg",
                             headers={"Cache-Control": "private, max-age=86400"})
 
+    @app.post("/api/clips/delete")
+    async def delete_clips(request: Request):
+        """Deletes several recordings at once (Select in the Recordings tab). Backups are kept."""
+        body = await request.json()
+        ids = body.get("ids") if isinstance(body, dict) else None
+        if not isinstance(ids, list) or not ids or len(ids) > 5000:
+            raise HTTPException(400, "Send the list of recordings to delete")
+        deleted, missing = [], []
+
+        def run():
+            for clip_id in dict.fromkeys(str(i) for i in ids):
+                (deleted if hub.storage.delete_clip(clip_id) else missing).append(clip_id)
+        await asyncio.to_thread(run)
+        if deleted:
+            log.info("Deleted %d recording(s) from the viewer", len(deleted))
+        return {"ok": True, "deleted": deleted, "missing": missing}
+
     @app.delete("/api/clips/{clip_id}")
     def delete_clip(clip_id: str):
         if not hub.storage.delete_clip(clip_id):

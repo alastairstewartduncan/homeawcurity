@@ -369,3 +369,26 @@ button.link { background: none; border: none; color: var(--accent); padding: 4px
 .toast { border-radius: 12px; border-left-width: 4px; }
 .empty { border: 1px dashed var(--line); border-radius: var(--radius); }
 #cam-filter, .card select { border-radius: 99px; padding: 7px 12px; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); }
+
+/* Choosing several recordings: Select (or press and hold one), tick them, delete. */
+.selbar { position: sticky; top: calc(var(--header-h) + env(safe-area-inset-top) + 8px); z-index: 12;
+  display: flex; align-items: center; gap: 8px; margin: -4px 0 14px; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 99px; box-shadow: var(--shadow); }
+.selbar #sel-count { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.selbar button { border-radius: 99px; padding: 7px 14px; white-space: nowrap; }
+button.danger.solid { background: var(--rec); border-color: var(--rec); color: #fff; }
+button.danger.solid:disabled { opacity: .45; cursor: default; }
+.clip { position: relative; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.clip .tick { display: none; position: absolute; top: 8px; right: 8px; z-index: 2; width: 26px; height: 26px;
+  border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.35); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.clips.selecting .clip .tick { display: block; }
+.clips.selecting .clip.picked { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.clips.selecting .clip.picked .tick { background: var(--accent) center/16px no-repeat
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E"); border-color: var(--accent); }
+.clips.selecting .clip.picked .thumb { opacity: .8; }
+@media (max-width: 760px) {
+  .selbar { gap: 6px; padding: 6px; }
+  .selbar button { padding: 7px 11px; font-size: 14px; }
+  .selbar #sel-count { font-size: 13px; }
+}

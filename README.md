@@ -21,7 +21,7 @@ Windows recorder and an Android app.
 - **Privacy areas**: cover a neighbour's window or the street with blur or black. They are hidden in
   the live picture, saved pictures, phone alerts and new recordings (Settings > Privacy).
 - **Live view and recordings** on the PC (in its own window) and on the phone, by day, with
-  thumbnails, a "People" filter, download and delete.
+  thumbnails, a "People" filter, download and delete. Tap **Select** (or press and hold a recording on the phone) to tick several, or **Select all** for the day, and delete them in one go.
 - **Phone alerts** with a snapshot when a recording starts, sent straight from your PC to the app.
 - **Pan and tilt** from the PC and phone, if the camera supports ONVIF PTZ.
 - **Looks after the disk**: deletes clips older than 30 days, and the oldest first if space runs low.

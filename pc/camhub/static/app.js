@@ -423,13 +423,16 @@ function setupTalk(el, camId) {
 async function loadDays() {
   const days = await api('/api/days' + (camFilter ? `?camera=${camFilter}` : ''));
   const wrap = $('#days'); wrap.innerHTML = '';
-  if (!days.length) { $('#clips').innerHTML = '<div class="empty">No recordings yet. Clips appear here when the camera sees movement.</div>'; return; }
+  if (!days.length) {
+    selecting = false; selected.clear(); updateSelBar();
+    $('#clips').innerHTML = '<div class="empty">No recordings yet. Clips appear here when the camera sees movement.</div>'; return;
+  }
   if (!currentDay || !days.find(d => d.date === currentDay)) currentDay = days[0].date;
   for (const d of days) {
     const b = document.createElement('button');
     b.textContent = `${fmtDay(d.date)} (${d.count})`;
     b.classList.toggle('active', d.date === currentDay);
-    b.addEventListener('click', () => { currentDay = d.date; loadDays(); });
+    b.addEventListener('click', () => { currentDay = d.date; selected.clear(); lastPicked = null; loadDays(); });
     wrap.appendChild(b);
   }
   await loadClips();
@@ -458,10 +461,98 @@ function renderClips() {
       <span class="muted">${fmtDur(c.duration)}</span></div>
       ${c.summary ? `<div class="ai-summary" title="Described by AI">${esc(c.summary)}</div>` : ''}
       ${(c.seen || []).length ? `<div class="clip-seen">${c.seen.map(s => `<span class="pill">${esc(s)}</span>`).join(' ')}</div>` : ''}`;
-    b.addEventListener('click', () => openClip(c.id));
+    b.dataset.id = c.id;
+    b.classList.toggle('picked', selecting && selected.has(c.id));
+    b.setAttribute('aria-pressed', selecting ? String(selected.has(c.id)) : 'false');
+    b.insertAdjacentHTML('afterbegin', '<span class="tick" aria-hidden="true"></span>');
+    b.addEventListener('click', (e) => {
+      if (b.dataset.held) { delete b.dataset.held; return; }   // the long press already picked it
+      if (selecting) pick(c.id, e.shiftKey); else openClip(c.id);
+    });
+    longPress(b, () => { b.dataset.held = '1'; if (!selecting) startSelect(); pick(c.id, false); });
     wrap.appendChild(b);
   }
+  wrap.classList.toggle('selecting', selecting);
+  updateSelBar();
 }
+
+// ---------- choosing several recordings (Select, or press and hold one) ----------
+let selecting = false;
+const selected = new Set();
+let lastPicked = null;
+
+function longPress(el, fire) {
+  let timer = null, x = 0, y = 0;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button) return;
+    x = e.clientX; y = e.clientY; cancel();
+    timer = setTimeout(() => { timer = null; if (navigator.vibrate) navigator.vibrate(15); fire(); }, 500);
+  });
+  el.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) cancel(); });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => el.addEventListener(t, cancel));
+  el.addEventListener('contextmenu', (e) => { if (el.dataset.held || timer) e.preventDefault(); });
+}
+
+function startSelect() {
+  selecting = true; selected.clear(); lastPicked = null;
+  renderClips();
+}
+function stopSelect() {
+  selecting = false; selected.clear(); lastPicked = null;
+  renderClips();
+}
+function pick(id, range) {
+  const list = visibleClips().map(c => c.id);
+  if (range && lastPicked && list.includes(lastPicked)) {
+    // Shift-click on the PC picks everything between the last one and this one.
+    const [a, b] = [list.indexOf(lastPicked), list.indexOf(id)].sort((p, q) => p - q);
+    list.slice(a, b + 1).forEach(x => selected.add(x));
+  } else if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  lastPicked = id;
+  $$('#clips .clip').forEach(el => {
+    el.classList.toggle('picked', selected.has(el.dataset.id));
+    el.setAttribute('aria-pressed', String(selected.has(el.dataset.id)));
+  });
+  updateSelBar();
+}
+function pickedIds() { return visibleClips().map(c => c.id).filter(id => selected.has(id)); }
+function updateSelBar() {
+  const bar = $('#selbar'); if (!bar) return;
+  bar.classList.toggle('hidden', !selecting);
+  $('#sel-start').classList.toggle('hidden', selecting);
+  if (!selecting) return;
+  const n = pickedIds().length, total = visibleClips().length;
+  $('#sel-count').textContent = n ? `${n} of ${total} selected` : 'Tap recordings to select them';
+  $('#sel-all').textContent = n && n === total ? 'Select none' : 'Select all';
+  $('#sel-all').disabled = !total;
+  $('#sel-delete').disabled = !n;
+  $('#sel-delete').textContent = n ? `Delete ${n}` : 'Delete';
+}
+$('#sel-start').addEventListener('click', startSelect);
+$('#sel-cancel').addEventListener('click', stopSelect);
+$('#sel-all').addEventListener('click', () => {
+  const ids = visibleClips().map(c => c.id);
+  if (ids.length && ids.every(id => selected.has(id))) selected.clear(); else ids.forEach(id => selected.add(id));
+  renderClips();
+});
+$('#sel-delete').addEventListener('click', async () => {
+  const ids = pickedIds(); if (!ids.length) return;
+  const words = ids.length === 1 ? 'this recording' : `these ${ids.length} recordings`;
+  if (!confirm(`Delete ${words} from ${fmtDay(currentDay)}? This can't be undone.`)) return;
+  const btn = $('#sel-delete'); btn.disabled = true; btn.textContent = 'Deleting…';
+  try {
+    const r = await api('/api/clips/delete', {method: 'POST', body: JSON.stringify({ids})});
+    const n = r.deleted.length;
+    toast(n === 1 ? '1 recording deleted' : `${n} recordings deleted`);
+  } catch (e) {
+    toast('Could not delete: ' + e.message);
+  }
+  selecting = false; selected.clear(); lastPicked = null;
+  await loadDays();
+  updateSelBar();
+});
 function camName(id) { const c = status.cameras.find(x => x.id === id); return c ? c.name : id; }
 
 function openClip(id) {
@@ -502,7 +593,10 @@ $('#delete').addEventListener('click', async () => {
   if (nextClip) openClip(nextClip.id); else { closeClip(); loadDays(); }
 });
 document.addEventListener('keydown', (e) => {
-  if ($('#player').classList.contains('hidden')) return;
+  if ($('#player').classList.contains('hidden')) {
+    if (e.key === 'Escape' && selecting) stopSelect();
+    return;
+  }
   if (e.key === 'Escape') closeClip();
   if (e.key === 'ArrowLeft' && e.altKey) step(-1);
   if (e.key === 'ArrowRight' && e.altKey) step(1);

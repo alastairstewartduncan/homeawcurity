@@ -7,9 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
@@ -37,7 +34,6 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -67,13 +63,6 @@ class MainActivity : AppCompatActivity() {
     private var locationRadius = 150
     private var talk: TalkRecorder? = null
     private var tv: TvCast? = null
-    /** Showing "can't reach the PC": try again by itself when the phone's network changes. */
-    private var offline = false
-    private var lastClip: String? = null
-    private val networkWatch = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = networkChanged()
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = networkChanged()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,10 +83,6 @@ class MainActivity : AppCompatActivity() {
         WindowInsetsControllerCompat(window, root).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
-        }
-        try {
-            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkWatch)
-        } catch (_: Exception) {
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -130,7 +115,6 @@ class MainActivity : AppCompatActivity() {
     // ---- first run: where is the recorder? -----------------------------------
 
     private fun showSetup(problem: String?) {
-        offline = false
         web?.destroy()
         web = null
         root.removeAllViews()
@@ -206,18 +190,6 @@ class MainActivity : AppCompatActivity() {
 
     /** Set up for away access: work out home or away first (network), then show the pages. */
     private fun showWeb(clip: String?) {
-        lastClip = clip
-        offline = false
-        if (!prefs.paired && isLocalAddress(prefs.serverUrl) && !onLocalNetwork()) {
-            // Mobile data can't reach a home address: say so straight away instead of waiting.
-            showOffline(
-                "You're not on your home Wi-Fi, so your phone can't reach the PC at ${prefs.serverUrl.removePrefix("http://")}.",
-                "To watch away from home, connect to your home Wi-Fi once and turn on Settings > Away from home. " +
-                    "This screen tries again by itself when you're back on Wi-Fi."
-            )
-            return
-        }
-        showConnecting()
         if (!prefs.paired) {
             openWeb(clip)
             return
@@ -226,123 +198,6 @@ class MainActivity : AppCompatActivity() {
             Remote.choose(prefs)
             runOnUiThread { if (!isFinishing) openWeb(clip) }
         }.start()
-    }
-
-    /** The logo and a spinner while the PC is found, instead of a black screen. */
-    private fun showConnecting() {
-        val old = web
-        web = null
-        root.removeAllViews()
-        old?.destroy()
-        root.addView(connectingView(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-    }
-
-    private fun connectingView(): View {
-        val d = resources.displayMetrics.density
-        return LinearLayout(this).apply {
-            tag = "connecting"
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#0B1020"))
-            isClickable = true
-            addView(ImageView(this@MainActivity).apply { setImageResource(R.drawable.logo_mark) },
-                LinearLayout.LayoutParams((72 * d).toInt(), (72 * d).toInt()))
-            addView(ProgressBar(this@MainActivity).apply { isIndeterminate = true },
-                LinearLayout.LayoutParams((32 * d).toInt(), (32 * d).toInt()).apply { topMargin = (24 * d).toInt() })
-            addView(TextView(this@MainActivity).apply {
-                text = "Connecting to your PC…"
-                textSize = 15f
-                setTextColor(Color.parseColor("#8E9BB3"))
-                setPadding(0, (12 * d).toInt(), 0, 0)
-            })
-        }
-    }
-
-    /** The PC can't be reached: say why, with Try again. Retries by itself when the network changes. */
-    private fun showOffline(title: String, detail: String) {
-        val old = web
-        web = null
-        root.removeAllViews()
-        old?.destroy()
-        offline = true
-        val d = resources.displayMetrics.density
-        val pad = (24 * d).toInt()
-        fun rounded(fill: String, stroke: String?) = GradientDrawable().apply {
-            setColor(Color.parseColor(fill))
-            cornerRadius = 14 * d
-            if (stroke != null) setStroke((1 * d).toInt(), Color.parseColor(stroke))
-        }
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(pad, pad, pad, pad)
-        }
-        box.addView(ImageView(this).apply { setImageResource(R.drawable.logo_mark) },
-            LinearLayout.LayoutParams((64 * d).toInt(), (64 * d).toInt()).apply { bottomMargin = pad })
-        box.addView(TextView(this).apply {
-            text = "Can't reach your PC"
-            textSize = 22f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#E9EEF7"))
-            gravity = Gravity.CENTER
-        })
-        box.addView(TextView(this).apply {
-            text = title
-            textSize = 15f
-            setTextColor(Color.parseColor("#E9EEF7"))
-            gravity = Gravity.CENTER
-            setPadding(0, pad / 2, 0, 0)
-        })
-        box.addView(TextView(this).apply {
-            text = detail
-            textSize = 14f
-            setTextColor(Color.parseColor("#8E9BB3"))
-            gravity = Gravity.CENTER
-            setPadding(0, pad / 2, 0, pad)
-        })
-        box.addView(Button(this).apply {
-            text = "Try again"
-            isAllCaps = false
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            background = rounded("#3B82F6", null)
-            setOnClickListener { showWeb(lastClip) }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (52 * d).toInt()))
-        box.addView(Button(this).apply {
-            text = "Change PC address"
-            isAllCaps = false
-            textSize = 15f
-            setTextColor(Color.parseColor("#60A5FA"))
-            background = rounded("#00000000", "#26324A")
-            setOnClickListener { offline = false; showSetup(null) }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (48 * d).toInt()).apply { topMargin = pad / 2 })
-        root.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
-    }
-
-    private fun networkChanged() {
-        if (!offline) return
-        runOnUiThread {
-            // Give the new network a moment to finish connecting, then try again.
-            root.postDelayed({ if (offline && !isFinishing) showWeb(lastClip) }, 1_500)
-        }
-    }
-
-    /** On Wi-Fi or a cable, where a home address (192.168.x.x and so on) can be reached. */
-    private fun onLocalNetwork(): Boolean = try {
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-        caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-    } catch (_: Exception) {
-        true
-    }
-
-    /** A private home-network address, which mobile data can never reach. */
-    private fun isLocalAddress(url: String): Boolean {
-        val host = try { Uri.parse(url).host ?: "" } catch (_: Exception) { "" }
-        if (host.endsWith(".local") || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.")) return true
-        val m = Regex("^172\\.(\\d+)\\.").find(host) ?: return false
-        return m.groupValues[1].toInt() in 16..31
     }
 
     /** Is this one of the PC's own addresses? */
@@ -397,20 +252,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            override fun onPageCommitVisible(view: WebView, url: String) {
-                root.findViewWithTag<View>("connecting")?.let { root.removeView(it) }
-            }
-
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
                     Remote.forget()
-                    val where = prefs.serverUrl.removePrefix("http://").removePrefix("https://")
-                    showOffline(
-                        "Your phone couldn't get an answer from the PC at $where.",
-                        if (prefs.paired) "Check the PC is on and connected to the internet. This screen tries again by itself when your phone's connection changes."
-                        else if (isLocalAddress(prefs.serverUrl)) "Check the PC is on and your phone is on your home Wi-Fi. To watch away from home, turn on Settings > Away from home while on Wi-Fi."
-                        else "Check the PC is on and the address is right."
-                    )
+                    showSetup("Couldn't reach ${prefs.serverUrl} (${error.description}). Check the PC is on and the address is right.")
                 }
             }
         }
@@ -448,7 +293,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Downloading $name", Toast.LENGTH_SHORT).show()
         }
         root.addView(w, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        root.addView(connectingView(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         w.loadUrl(if (clip != null) pageFor(clip) else prefs.serverUrl + "/")
         if (prefs.token.isNotEmpty()) startAlerts()
     }
@@ -487,10 +331,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        try {
-            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkWatch)
-        } catch (_: Exception) {
-        }
         tv?.release()
         tv = null
         web?.destroy()

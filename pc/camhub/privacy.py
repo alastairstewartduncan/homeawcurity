@@ -8,10 +8,13 @@ with x and y from 0 to 1, so the same areas fit both of the camera's streams.
   picture arrives from the camera (apply_to_frame).
 - Recordings are copied from the camera without being re-made, so each finished clip is made
   again once with the areas covered (mask_clip), before it shows up in the recordings list.
+- When the camera turns or zooms by itself (following someone, follow.py), the areas are moved
+  with the picture (viewmotion.py), in the live picture and in the recording.
 """
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -126,8 +129,36 @@ def _flags():
     return NO_WINDOW | below_normal
 
 
-def mask_clip(src, dst, settings):
+def _timeline_files(folder, w, h, timeline):
+    """Writes one mask picture for each moment the areas moved, and a list for ffmpeg that shows
+    each for as long as it applied. Each picture also covers where the areas were just before
+    and just after, so a moment's difference between the streams never uncovers anything."""
+    lines = ["ffconcat version 1.0"]
+    n = len(timeline)
+    for i, (t, masks) in enumerate(timeline):
+        near = list(masks)
+        if i > 0:
+            near += timeline[i - 1][1]
+        if i + 1 < n:
+            near += timeline[i + 1][1]
+        name = os.path.join(folder, f"m{i:05d}.png")
+        cv2.imwrite(name, mask_image(w, h, near))
+        dur = (timeline[i + 1][0] - t) if i + 1 < n else 24 * 3600
+        lines.append(f"file '{name.replace(os.sep, '/')}'")
+        lines.append(f"duration {max(0.001, dur):.3f}")
+    # The concat reader needs the last file named again for its duration to count.
+    lines.append(lines[-2])
+    listing = os.path.join(folder, "masks.txt")
+    with open(listing, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return listing
+
+
+def mask_clip(src, dst, settings, timeline=None):
     """Makes the clip at src again with the privacy areas covered, writing an MP4 to dst.
+
+    timeline: when the camera turned by itself during the clip, [(seconds into the clip,
+    masks)] saying where the areas were from then on. Otherwise they stay put.
 
     Returns True if dst was written. The sound is copied unchanged.
     """
@@ -140,8 +171,13 @@ def mask_clip(src, dst, settings):
     w, h = size
     fd, mask_png = tempfile.mkstemp(suffix=".png", prefix="camhub-mask-")
     os.close(fd)
+    moving = tempfile.mkdtemp(prefix="camhub-masks-") if timeline and len(timeline) > 1 else None
     try:
         cv2.imwrite(mask_png, mask_image(w, h, settings["masks"]))
+        if moving:
+            mask_in = ["-f", "concat", "-safe", "0", "-i", _timeline_files(moving, w, h, timeline)]
+        else:
+            mask_in = ["-loop", "1", "-i", mask_png]
         if settings.get("style") == "black":
             cover = "drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill"
         else:
@@ -151,7 +187,7 @@ def mask_clip(src, dst, settings):
         graph = (f"[0:v]split=2[base][fx];[fx]{cover}[cov];"
                  f"[1:v]format=gray,scale={w}:{h}[m];[cov][m]alphamerge[top];"
                  f"[base][top]overlay=shortest=1:format=auto,format=yuv420p[out]")
-        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-loop", "1", "-i", mask_png,
+        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", src, *mask_in,
                "-filter_complex", graph, "-map", "[out]", "-map", "0:a?",
                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy",
                "-movflags", "+faststart", "-f", "mp4", dst]
@@ -174,6 +210,8 @@ def mask_clip(src, dst, settings):
             os.remove(mask_png)
         except OSError:
             pass
+        if moving:
+            shutil.rmtree(moving, ignore_errors=True)
 
 
 def add_privacy_routes(app, hub):

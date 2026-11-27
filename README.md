@@ -238,6 +238,26 @@ Everything here runs on the PC. No pictures are sent anywhere.
   "Faces seen lately"). Turn on *Recognise faces* and "person seen" alerts become **stranger**
   alerts, with no alert for the people you've named. If no face can be seen, you choose whether
   it still alerts.
+- **Learns as you go.** When a face looks like someone you've named but it isn't sure, you get
+  an **"Is this Sarah?"** notification with the picture instead of a stranger alert. Tap *Yes*
+  and that face is added to Sarah; *No* and a face like it is never taken for her again (it goes
+  to "Faces seen lately" to name); *Someone else* opens the Smart tab to pick or type a name.
+  Faces it is very sure of, that show someone in a new light (glasses, night), are also kept by
+  themselves, marked ✦, and never replace your own photos. Several unclear looks at the same
+  person are put together, which is surer than any one look. Both can be turned off.
+- **Sharper faces.** Small, dark or grainy faces are enlarged, brightened (at night) and
+  sharpened on the PC before matching, and the sharpest of the last few full quality pictures
+  is used.
+- **Follow and zoom** (pan, tilt and zoom cameras). Turn on *Follow people across the property*
+  and the camera turns to keep someone in the middle as they cross your property, so you get one
+  clip of them. Turn on *Zoom in on faces* and, when a face is too small or unclear, it points at
+  their head and zooms in for a few seconds, then back out (a camera without an optical zoom just
+  centres on them). It only moves for people standing on **Our property** (so draw it first),
+  never for anyone in the street, a privacy area or an ignore zone. Privacy areas move with the
+  picture while it turns, in the live view and the recording; if it can't tell where it's
+  pointing, the whole picture is covered and it goes straight back. Afterwards it returns to
+  exactly where it was (saved in one of the camera's own position slots). Steering it by hand
+  stops it at once. Lines, loitering areas, parcels and cars wait until it's back.
 - **Known from behind.** Turn on *Also know them from behind or in the dark* and family are
   also recognised by build, height, clothes and walk (OpenCV Zoo's YoutuReID model, on the PC).
   It learns by itself: each time someone's face is recognised it keeps a picture of their build

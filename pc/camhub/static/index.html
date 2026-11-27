@@ -52,6 +52,13 @@
         <button data-f="person">People</button>
       </div>
       <select id="cam-filter"></select>
+      <button id="sel-start" title="Pick several recordings to delete (or press and hold a recording)">Select</button>
+    </div>
+    <div class="selbar hidden" id="selbar" role="toolbar" aria-label="Selected recordings">
+      <button id="sel-cancel">Cancel</button>
+      <span id="sel-count" aria-live="polite">Tap recordings to select them</span>
+      <button id="sel-all">Select all</button>
+      <button id="sel-delete" class="danger solid" disabled>Delete</button>
     </div>
     <div class="clips" id="clips"></div>
   </section>

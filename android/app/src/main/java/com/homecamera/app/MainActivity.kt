@@ -62,6 +62,21 @@ class MainActivity : AppCompatActivity() {
     private var fullCallback: WebChromeClient.CustomViewCallback? = null
     private var locationRadius = 150
     private var talk: TalkRecorder? = null
+    /** Showing "couldn't reach the PC": try again by itself when the phone's network changes. */
+    private var waitingForNetwork = false
+    private var lastNetwork: android.net.Network? = null
+    private val networkWatch = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            runOnUiThread {
+                if (network == lastNetwork) return@runOnUiThread
+                lastNetwork = network
+                if (waitingForNetwork && prefs.serverUrl.isNotEmpty() && awayAddressProblem(prefs.homeAddress) == null) {
+                    Remote.forget()
+                    showWeb(null)
+                }
+            }
+        }
+    }
     private var tv: TvCast? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,6 +121,7 @@ class MainActivity : AppCompatActivity() {
     // ---- first run: where is the recorder? -----------------------------------
 
     private fun showSetup(problem: String?) {
+        waitingForNetwork = problem != null
         web?.destroy()
         web = null
         root.removeAllViews()
@@ -219,6 +235,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Shown while the app works out whether the PC answers at home or from outside. */
     private fun showConnecting() {
+        waitingForNetwork = false
         web?.let { root.removeView(it); it.destroy() }
         web = null
         root.removeAllViews()
@@ -247,6 +264,7 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun openWeb(clip: String?) {
+        waitingForNetwork = false
         val old = web
         web = null
         root.removeAllViews()
@@ -379,6 +397,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        try {
+            getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(networkWatch)
+        } catch (_: Exception) {
+        }
         Updater.activityVisible = false
         talk?.stop()
         talk = null
@@ -388,6 +410,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        try {
+            val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            lastNetwork = cm.activeNetwork // only a change from this one counts
+            cm.registerDefaultNetworkCallback(networkWatch)
+        } catch (_: Exception) {
+        }
         Updater.activityVisible = true
         offerUpdate()
         web?.onResume()

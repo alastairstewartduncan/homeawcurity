@@ -96,6 +96,7 @@ class Hub:
         ptz = OnvifPtz(on["host"], int(on.get("port") or 8888), on.get("username", ""),
                        on.get("password", ""), on_port_found=save_port) if on.get("host") else None
         cam = Camera(c, self.storage, self.events, self.detector, ptz)
+        cam.follower.on_save = self.config.save
         if getattr(self, "smart", None) is not None:
             cam.smart = self.smart.watcher(cam)
         return cam

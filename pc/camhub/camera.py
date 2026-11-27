@@ -8,6 +8,7 @@ Two background threads per camera:
 
 Nothing is written to disk unless a clip is being recorded.
 """
+import collections
 import datetime
 import json
 import logging
@@ -24,7 +25,9 @@ import cv2
 import numpy as np
 
 from . import privacy
+from .follow import Follower
 from .tsbuffer import PreRollBuffer, TsPacketizer, TsStream
+from .viewmotion import FULL_FRAME, ViewTracker, project_masks
 
 log = logging.getLogger("camhub.camera")
 
@@ -147,9 +150,12 @@ class ClipWriter:
     """Pipes MPEG-TS into ffmpeg, which writes an MP4 without re-encoding the video."""
 
     def __init__(self, base_path, clip_id, cam_id, started, trigger, person, thumb_jpeg, header_bytes,
-                 started_mono=None, privacy_settings=None):
+                 started_mono=None, privacy_settings=None, views=None):
         self.base = base_path
         self.privacy = privacy_settings  # areas to cover once the clip is finished, or None
+        # Where the privacy areas were over time, when the camera turned by itself during the
+        # clip: views(start, end) -> [(seconds into the clip, masks)] or None.
+        self.views = views
         self.clip_id = clip_id
         self.cam_id = cam_id
         self.started = started
@@ -205,7 +211,8 @@ class ClipWriter:
         if self.closed:
             return
         self.closed = True
-        duration = round(time.monotonic() - self.started_mono, 1)
+        self.ended_mono = time.monotonic()
+        duration = round(self.ended_mono - self.started_mono, 1)
         self.q.put(None)
 
         def finish():
@@ -258,7 +265,14 @@ class ClipWriter:
         if not self.privacy:
             return False
         tmp = self.base + ".private.mp4.part"
-        if privacy.mask_clip(self.part, tmp, self.privacy):
+        timeline = None
+        if self.views is not None:
+            try:
+                timeline = self.views(self.started_mono, getattr(self, "ended_mono", time.monotonic()))
+            except Exception:
+                log.exception("Couldn't work out where the privacy areas were during clip %s", self.clip_id)
+                timeline = [(0.0, FULL_FRAME)]
+        if privacy.mask_clip(self.part, tmp, self.privacy, timeline):
             os.replace(tmp, self.part)
             log.info("Covered the privacy areas in clip %s", self.clip_id)
             return True
@@ -271,6 +285,14 @@ class ClipWriter:
     def add_seen(self, label):
         if label and label not in self.seen:
             self.seen.append(label)
+
+
+def sharpness(img):
+    """How sharp a picture is (more is sharper): the spread of its edges, on a small grey copy."""
+    h, w = img.shape[:2]
+    s = min(1.0, 640 / max(1, w))
+    small = cv2.resize(img, (max(1, int(w * s)), max(1, int(h * s))), interpolation=cv2.INTER_AREA)
+    return float(cv2.Laplacian(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
 
 
 class Camera:
@@ -318,6 +340,13 @@ class Camera:
         self._follow_next = 0.0
         self.last_person = None     # (time, boxes)
         self.smart = None           # smart.CameraWatcher: faces, cars, parcels, lines and loitering
+        # Following people and zooming in on faces (follow.py), and keeping track of where the
+        # camera points meanwhile, so privacy areas stay covered (viewmotion.py).
+        self.view = ViewTracker()
+        self.follower = Follower(self)
+        self._raw = None
+        self._view_logged = self.view.version
+        self.view_log = collections.deque(maxlen=4000)   # (time, privacy areas in that view)
 
     @property
     def motion(self):
@@ -344,8 +373,71 @@ class Camera:
         now = time.monotonic()
         self._quiet_until = max(self._quiet_until, now + seconds)
         if manual:
-            # Someone is steering by hand: don't let the patrol pull the camera away.
+            # Someone is steering by hand: don't let the patrol pull the camera away, and stop
+            # following anyone.
             self._patrol_pause_until = now + 120
+            self.follower.cancel()
+
+    # ---- following people (follow.py) ----
+
+    def raw_frame(self):
+        return self._raw
+
+    def keep_recording(self, now):
+        """Someone is being followed: keep the clip going (or start one) so it's one clip."""
+        with self._lock:
+            self._patrol_pause_until = max(self._patrol_pause_until, now + 60)
+            if self.clip is not None:
+                self.last_activity = now
+            else:
+                self._start_clip("person", True, self._frame, None)
+
+    def smart_look_now(self):
+        if self.smart is not None:
+            self.smart.look_now()
+
+    def privacy_now(self):
+        """The privacy areas where they are in the picture now (moved if the camera has turned
+        by itself; the whole picture if it can't tell where it points)."""
+        s = privacy.settings_of(self.cfg)
+        if not s["masks"] or not self.view.active:
+            return s
+        if self.view.lost:
+            return dict(s, masks=FULL_FRAME)
+        return dict(s, masks=project_masks(s["masks"], self.view.matrix()))
+
+    def _log_view(self, now):
+        if self.view.version == self._view_logged:
+            return
+        self._view_logged = self.view.version
+        masks = privacy.settings_of(self.cfg)["masks"]
+        if masks:
+            self.view_log.append((now, self.privacy_now()["masks"]))
+
+    def privacy_recent(self, seconds=3.0):
+        """The privacy areas covering everywhere they've been lately (for pictures taken from the
+        main stream, which may be a moment older than the live picture)."""
+        s = self.privacy_now()
+        if not s["masks"]:
+            return s
+        since = time.monotonic() - seconds
+        extra = [m for t, ms in list(self.view_log) if t >= since for m in ms]
+        if not extra:
+            return s
+        return dict(s, masks=s["masks"] + extra)
+
+    def views_between(self, start, end):
+        """Where the privacy areas were during a clip, as [(seconds into it, masks)], or None if
+        they never moved."""
+        log_ = list(self.view_log)
+        home = base = privacy.settings_of(self.cfg)["masks"]
+        for t, ms in log_:
+            if t <= start:
+                base = ms
+        changes = [(round(t - start, 3), ms) for t, ms in log_ if start < t <= end]
+        if not changes and base == home:
+            return None
+        return [(0.0, base)] + changes
 
     def _patrol_loop(self):
         last_move = 0.0
@@ -376,6 +468,8 @@ class Camera:
         """Turns a little towards movement at the edge of the picture."""
         if not self.ptz_cfg.get("follow_motion") or not (self.ptz and self.ptz.available):
             return
+        if self.follower.active or self.follower.enabled():
+            return      # following people on the property does this properly
         if now < self._follow_next or not (self.motion_x < 0.2 or self.motion_x > 0.8):
             return
         self._follow_next = now + 8
@@ -432,6 +526,7 @@ class Camera:
                 "patrol": bool((self.ptz_cfg.get("patrol") or {}).get("enabled")),
                 "patrol_seconds": int((self.ptz_cfg.get("patrol") or {}).get("dwell_seconds") or 30),
                 "follow_motion": bool(self.ptz_cfg.get("follow_motion")),
+                "following": self.follower.status() if self.ptz else None,
                 "person_detection": self.detector.available,
             }
 
@@ -585,7 +680,8 @@ class Camera:
         header = self.ts.headers() + self.preroll.snapshot()
         self.clip = ClipWriter(base, clip_id, self.id, started, trigger, person, thumb, header,
                                started_mono=self.preroll.gops[0][0],
-                               privacy_settings=privacy.for_recording(self.cfg))
+                               privacy_settings=privacy.for_recording(self.cfg),
+                               views=self.views_between)
         self.last_activity = time.monotonic()
         log.info("[%s] Recording started (%s)", self.id, trigger)
         self.events.publish({
@@ -705,8 +801,15 @@ class Camera:
                             continue
                     break
                 failures = 0
+                # While the camera turns by itself, follow where it points (on the picture as it
+                # comes, before anything is covered).
+                view_ok = True
+                if self.view.active:
+                    view_ok = self.view.update(frame)
+                self._raw = frame
+                self._log_view(time.monotonic())
                 # Cover the privacy areas before the picture is used for anything.
-                frame = privacy.apply_to_frame(frame, privacy.settings_of(self.cfg))
+                frame = privacy.apply_to_frame(frame, self.privacy_now())
                 if not got_frame:
                     got_frame = True
                     backoff = 2
@@ -724,11 +827,20 @@ class Camera:
                     m = self.motion
                     key = (m["sensitivity"],)
                     turning = now < self._quiet_until
+                    steering = self.follower.steering and not turning
                     objects = None
                     if turning:
                         # The camera is turning, so everything "moves". Start afresh afterwards.
                         bg, streak = None, 0
                         self.motion_level = 0.0
+                    elif steering:
+                        # We're turning the camera to follow someone: motion can't be measured,
+                        # so just keep looking for them.
+                        bg, streak = None, 0
+                        self.motion_level = 0.0
+                        if self.detector.available and now - last_check >= 0.25:
+                            last_check = now
+                            objects = self._detect(frame)
                     else:
                         if bg is None or key != bg_key:
                             var = float(np.interp(m["sensitivity"], [1, 10], [60, 8]))
@@ -743,8 +855,10 @@ class Camera:
                         # Look for people (and vehicles) about once a second while things move,
                         # and also while the smart rules are following someone who stands still.
                         smart = self.smart
-                        want = moving or (smart is not None and smart.wants_detection(now))
+                        want = moving or (smart is not None and smart.wants_detection(now)) or self.follower.active
                         interval = smart.detect_interval() if smart is not None else 1.0
+                        if self.follower.active:
+                            interval = 0.25
                         if want and self.detector.available and now - last_check >= interval:
                             last_check = now
                             objects = self._detect(frame)
@@ -753,9 +867,14 @@ class Camera:
                             people = [(o["conf"], o["box"]) for o in objects or []
                                       if o["kind"] == "person" and not o["ignored"]]
                             self._on_motion(frame, now, people)
+                    if self.ptz is not None:
+                        try:
+                            self.follower.step(now, objects, view_ok)
+                        except Exception:
+                            log.exception("[%s] Following failed", self.id)
                     if self.smart is not None:
                         try:
-                            self.smart.on_frame(frame, now, streak >= 2, objects, turning)
+                            self.smart.on_frame(frame, now, streak >= 2, objects, turning, follow=steering)
                         except Exception:
                             log.exception("[%s] Smart detection failed", self.id)
                 if is_file:
@@ -827,8 +946,11 @@ class Camera:
         "ignored" means standing in an ignore zone."""
         conf = float(self.motion.get("person_confidence", 0.5))
         out = []
+        moved = self.view.active
         for kind, c, box in self.detector.detect_objects(frame, conf, max(0.4, conf)):
-            out.append({"kind": kind, "conf": c, "box": box, "ignored": self._in_ignore_zone(box)})
+            # Where they are in the camera's usual view, which is what the drawn areas are for.
+            home = self.view.box_to_home(box) if moved else box
+            out.append({"kind": kind, "conf": c, "box": box, "home": home, "ignored": self._in_ignore_zone(home)})
         return out
 
     def add_seen(self, label):
@@ -837,9 +959,10 @@ class Camera:
             if self.clip is not None:
                 self.clip.add_seen(label)
 
-    def hires_frame(self, timeout=10):
+    def hires_frame(self, timeout=10, sharpest=False):
         """A full quality picture from the main stream, made from the last second or two held
-        in memory. Used to recognise faces, which are too small in the live picture."""
+        in memory. Used to recognise faces, which are too small in the live picture.
+        sharpest: of the last few pictures, the least blurred (people move, the camera turns)."""
         with self._lock:
             if not self.stream_online or not self.preroll.gops:
                 return None
@@ -858,13 +981,22 @@ class Camera:
                                  creationflags=NO_WINDOW).stdout
         except (OSError, subprocess.TimeoutExpired):
             return None
-        start = out.rfind(b"\xff\xd8\xff")
-        if start < 0:
+        starts = [m.start() for m in re.finditer(b"\xff\xd8\xff", out)]
+        if not starts:
             return None
-        img = cv2.imdecode(np.frombuffer(out[start:], np.uint8), cv2.IMREAD_COLOR)
-        if img is None or img.size == 0:
+        pick = starts[-3:] if sharpest else starts[-1:]
+        img, best = None, -1.0
+        for i, a in enumerate(pick):
+            b = pick[i + 1] if i + 1 < len(pick) else len(out)
+            cand = cv2.imdecode(np.frombuffer(out[a:b], np.uint8), cv2.IMREAD_COLOR)
+            if cand is None or cand.size == 0:
+                continue
+            score = sharpness(cand) if len(pick) > 1 else 0.0
+            if score >= best:
+                img, best = cand, score
+        if img is None:
             return None
-        return privacy.apply_to_frame(img, privacy.settings_of(self.cfg))
+        return privacy.apply_to_frame(img, self.privacy_recent())
 
     def _on_motion(self, frame, now, people):
         m = self.motion

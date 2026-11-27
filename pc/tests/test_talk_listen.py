@@ -343,6 +343,7 @@ def test_patrol_moves_between_positions_and_waits_while_recording():
     cam._stop = threading.Event()
     cam._quiet_until = cam._patrol_pause_until = 0.0
     cam._patrol_i = -1
+    cam.follower = SimpleNamespace(cancel=lambda: None)
     t = threading.Thread(target=cam._patrol_loop, daemon=True)
     t.start()
     try:

@@ -61,6 +61,11 @@
             android:name=".Updater$InstallReceiver"
             android:exported="false" />
 
+        <!-- Yes / No on an "Is this ...?" notification. -->
+        <receiver
+            android:name=".QuestionReceiver"
+            android:exported="false" />
+
         <!-- Home screen widget: latest picture, home/away and the last alert. -->
         <receiver
             android:name=".CameraWidget"

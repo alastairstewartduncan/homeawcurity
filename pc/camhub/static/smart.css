@@ -68,3 +68,13 @@
   .visit-tile { width: 140px; }
   .visitor-actions .vi-label { width: 100%; }
 }
+
+/* "Is this ...?" questions */
+.questions-card { border-color: var(--accent, #4c8dff); }
+.question-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.question-row:last-child { border-bottom: 0; }
+.question-row img { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; background: #000; flex: none; }
+.question-body { flex: 1; min-width: 0; }
+.question-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.question-btns select { max-width: 100%; }
+.follow-status { margin-top: 6px; }

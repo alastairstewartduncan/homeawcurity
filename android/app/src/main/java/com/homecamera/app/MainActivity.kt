@@ -402,9 +402,11 @@ class MainActivity : AppCompatActivity() {
         if (prefs.token.isNotEmpty()) startAlerts()
     }
 
-    /** A notification opens a recording, or (for "summary=<date>") a night summary. */
+    /** A notification opens a recording, (for "summary=<date>") a night summary, or (for
+     * "smart=questions") the "Is this ...?" questions in the Smart tab. */
     private fun pageFor(target: String) =
-        if (target.startsWith("summary=")) "${prefs.serverUrl}/#$target" else "${prefs.serverUrl}/#clip=$target"
+        if (target.startsWith("summary=") || target.startsWith("smart=")) "${prefs.serverUrl}/#$target"
+        else "${prefs.serverUrl}/#clip=$target"
 
     private fun exitFullScreen() {
         val v = fullView ?: return

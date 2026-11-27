@@ -1,0 +1,48 @@
+/* The Who's been tab: people and number plates seen on your property, and searching them. */
+.log-search { display: flex; flex-direction: column; gap: 10px; }
+.log-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.log-row .ls-q { flex: 1 1 260px; min-width: 0; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); }
+.log-row input[type=date], .log-row select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); }
+.log-search .seg button.active { background: var(--accent); color: var(--accent-ink); }
+.who-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.who-grid > p { grid-column: 1 / -1; margin: 0; }
+.who-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 8px;
+  border-radius: 10px; background: var(--panel-2); }
+.who-tile img, .who-tile .nopic { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #000;
+  display: flex; align-items: center; justify-content: center; font-size: 34px; color: var(--muted); margin-bottom: 4px; }
+.who-tile.vehicle img { aspect-ratio: 4 / 3; }
+.who-tile .tags { display: flex; flex-wrap: wrap; gap: 2px; }
+.who-tile .badge { margin-left: 0; }
+.plate { display: inline-block; font-family: ui-monospace, Consolas, monospace; font-weight: 700; letter-spacing: .06em;
+  background: #f5c400; color: #111; border-radius: 4px; padding: 0 6px; font-size: 13px; }
+.group-head { display: flex; gap: 14px; align-items: flex-start; }
+.group-pic { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; background: #000; flex: none; }
+.group-pic.nopic { display: flex; align-items: center; justify-content: center; font-size: 34px; color: var(--muted); background: var(--panel-2); }
+.group-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.group-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.entries { display: flex; flex-direction: column; }
+.entry-day { margin: 14px 0 4px; font-size: 14px; color: var(--muted); }
+.entry { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.entry-pic { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: #000; flex: none; }
+.entry-pic.nopic { display: flex; align-items: center; justify-content: center; color: var(--muted); background: var(--panel-2); }
+.entry-plate { height: 30px; max-width: 120px; object-fit: contain; border-radius: 4px; background: #000; flex: none; }
+.entry-info { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.entry-name.link { cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); }
+.entry-actions { display: flex; gap: 6px; align-items: center; flex: none; }
+.entry-actions .del { padding: 6px 9px; }
+.log-settings summary { cursor: pointer; }
+.log-settings .warn-box { border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 12px; }
+.log-settings .small { font-size: 12px; }
+@media (max-width: 600px) {
+  .who-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .group-pic { width: 72px; height: 72px; }
+  .entry-plate { display: none; }
+}
+.log-results { grid-column: 1 / -1; display: flex; flex-direction: column; }
+/* Six tabs don't fit across a phone: let them scroll sideways rather than widen the page. */
+@media (max-width: 640px) {
+  nav { overflow-x: auto; scrollbar-width: none; }
+  nav button { white-space: nowrap; flex: none; }
+}

@@ -247,6 +247,28 @@ Everything here runs on the PC. No pictures are sent anywhere.
 Smart alerts follow home and away like other alerts. Recordings show who and what was seen.
 Lines, areas and the doorstep stay in place on the picture, so keep the camera still (patrol off).
 
+## Who's been (people and number plate log)
+
+The **Who's been** tab keeps a log of everyone and every vehicle seen on your property, with the
+best picture of each (their face when it was seen, otherwise their build and clothes) and the
+recording they're in. Turn it on under *Log settings and privacy* in that tab. It all runs on the
+PC: nothing is sent anywhere.
+
+- **Who has been before.** Each person is put with their earlier sightings by face (or build and
+  clothes when no face was seen), so you see "Seen 5 times on 4 days", and family by name. Give
+  anyone a name (the postman) and you can search for it.
+- **Number plates.** When a vehicle stops on your property its plate is read (two small OpenCV
+  Zoo models, PP-OCRv3 and CRNN) and checked against UK plate shapes. Search a plate even with a
+  character or two wrong, or only part of it. Add your own cars' plates in the Smart tab.
+  Vehicles driving past aren't read.
+- **Search** by name or plate, by date and camera, or with a photo of someone: the face (or the
+  whole person) in it is compared with everyone in the log. Tap anyone to see every time they
+  were here and play the recordings one after another. Works the same in the phone app.
+- **Privacy (UK GDPR).** Nothing is logged by a camera until you draw *Our property* on it in the
+  Smart tab, and nobody in a privacy area is logged. Entries are deleted after 30 days (you can
+  choose 7 to 365), and you can delete one entry, everything about one person or plate, or the
+  whole log. People need *Recognise faces* on; plates work on their own and don't send alerts.
+
 ## Automatic updates
 
 The PC app checks the download page every few hours. A newer HomeCameraSetup.exe is downloaded,

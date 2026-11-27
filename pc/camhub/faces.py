@@ -314,7 +314,7 @@ class KnownStore:
                                         "time": b.get("time")} for b in p.get("bodies", [])],
                             "height": self.person_height(p)}
                            for p in self.known["people"]],
-                "cars": [{"id": c["id"], "name": c["name"],
+                "cars": [{"id": c["id"], "name": c["name"], "plate": c.get("plate") or "",
                           "samples": [{"id": s["id"], "pic": s.get("pic"), "night": s["sig"].get("night")}
                                       for s in c["samples"]]}
                          for c in self.known["cars"]],
@@ -351,6 +351,20 @@ class KnownStore:
             x["name"] = clean_name(name)
             self.save()
             return x
+
+    def set_plate(self, car_id, plate):
+        """Your car's number plate, so the sightings log knows it by its plate too."""
+        from .plates import clean
+        with self._lock:
+            c = self._find("cars", car_id)
+            if not c:
+                return None
+            plate = clean(plate)[:10]
+            if plate and len(plate) < 2:
+                raise ValueError("That doesn't look like a number plate")
+            c["plate"] = plate
+            self.save()
+            return c
 
     def remove(self, kind, item_id):
         with self._lock:

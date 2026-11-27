@@ -103,6 +103,9 @@ jobs:
           # Knowing people from behind (build, height, clothes): the block-quantised YoutuReID model.
           # The plain int8 file is smaller but far less accurate in OpenCV, so don't swap it in.
           Invoke-WebRequest "$zoo/person_reid_youtureid/person_reid_youtu_2021nov_int8bq.onnx" -OutFile models/person_reid_youtu_2021nov_int8bq.onnx
+          # Reading number plates for the Who's been log: finding writing, then reading it.
+          Invoke-WebRequest "$zoo/text_detection_ppocr/text_detection_en_ppocrv3_2023may.onnx" -OutFile models/text_detection_en_ppocrv3_2023may.onnx
+          Invoke-WebRequest "$zoo/text_recognition_crnn/text_recognition_CRNN_EN_2022oct_int8.onnx" -OutFile models/text_recognition_CRNN_EN_2022oct_int8.onnx
           Get-ChildItem models
 
       - name: Stamp the version
@@ -179,6 +182,8 @@ jobs:
               if (-not $smart.faces_available) { throw "face recognition models did not load in camhub.exe" }
               "Body recognition ready: $($smart.bodies_available)"
               if (-not $smart.bodies_available) { throw "body recognition model did not load in camhub.exe" }
+              "Number plate reading ready: $($smart.plates_available)"
+              if (-not $smart.plates_available) { throw "number plate models did not load in camhub.exe" }
             }
           } finally {
             Stop-Process $p -Force

@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/static/timeline.css">
 <link rel="stylesheet" href="/static/grid.css">
 <link rel="stylesheet" href="/static/smart.css">
+<link rel="stylesheet" href="/static/sightings.css">
 <script src="/static/timeline.js" defer></script>
 <script src="/static/privacy.js" defer></script>
 </head>
@@ -19,6 +20,7 @@
     <button data-tab="live" class="active">Live</button>
     <button data-tab="recordings">Recordings</button>
     <button data-tab="smart">Smart</button>
+    <button data-tab="seen">Who's been</button>
     <button data-tab="ai">AI</button>
     <button data-tab="settings">Settings</button>
   </nav>
@@ -51,6 +53,10 @@
 
   <section id="tab-smart" class="hidden">
     <div class="settings" id="smart"></div>
+  </section>
+
+  <section id="tab-seen" class="hidden">
+    <div class="settings" id="sightings"></div>
   </section>
 
   <section id="tab-ai" class="hidden">
@@ -143,5 +149,6 @@
 <script src="/static/summaries.js"></script>
 <script src="/static/grid.js"></script>
 <script src="/static/smart.js"></script>
+<script src="/static/sightings.js"></script>
 </body>
 </html>

@@ -125,7 +125,10 @@ def add_smart_routes(app, hub):
 
     @app.put("/api/smart/cars/{cid}")
     async def rename_car(cid: str, request: Request):
-        if not run(smart.store.rename, "cars", cid, (await body_of(request)).get("name")):
+        body = await body_of(request)
+        if "name" in body and not run(smart.store.rename, "cars", cid, body.get("name")):
+            raise HTTPException(404, "Not found")
+        if "plate" in body and not run(smart.store.set_plate, cid, body.get("plate")):
             raise HTTPException(404, "Not found")
         return smart.state()
 
@@ -166,3 +169,92 @@ def add_smart_routes(app, hub):
         if not p:
             raise HTTPException(404)
         return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+    # ---- the sightings log: people and number plates seen, and searching them ----
+
+    add_log_routes(app, hub)
+
+
+def add_log_routes(app, hub):
+    import os
+
+    from . import bodies as bodymod
+    from . import faces as facemod
+
+    smart = hub.smart
+    slog = smart.log
+
+    def clip_exists(clip_id):
+        base = hub.storage.clip_base(clip_id)
+        return bool(base) and os.path.isfile(base + ".mp4")
+
+    @app.get("/api/smart/log/who")
+    def log_who(kind: str = "", q: str = ""):
+        return {"who": slog.who(kind or None, q or None), "stats": slog.stats()}
+
+    @app.get("/api/smart/log/entries")
+    def log_entries(kind: str = "", q: str = "", group: str = "", day_from: str = "", day_to: str = "",
+                    camera: str = "", limit: int = 200):
+        return {"entries": slog.search(kind or None, q or None, group or None, day_from or None, day_to or None,
+                                       camera or None, max(1, min(1000, limit)), clip_exists)}
+
+    @app.post("/api/smart/log/photo")
+    async def log_photo(request: Request):
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        img = facemod.decode_image((body or {}).get("photo") if isinstance(body, dict) else None)
+        if img is None:
+            raise HTTPException(400, "That file isn't a picture this PC can read")
+        face = smart.engine.largest_face(img) if smart.engine.available else None
+        if face is not None and face["size"] >= facemod.MIN_FACE_PX * 0.8:
+            found, matches = "face", slog.by_photo(face=face["feature"])
+        else:
+            found, matches = None, []
+            if smart.body_engine.available and getattr(hub.detector, "available", False):
+                people = [o for o in hub.detector.detect_objects(img, 0.5, 0.35) if o[0] == "person"]
+                if people:
+                    _, _, box = max(people, key=lambda o: (o[2][2] - o[2][0]) * (o[2][3] - o[2][1]))
+                    obs = smart.body_engine.describe(img, box)
+                    if obs is not None:
+                        found, matches = "body", slog.by_photo(body=obs["feature"])
+            if found is None:
+                h, w = img.shape[:2]
+                obs = smart.body_engine.describe(img, (0, 0, 1, 1)) if smart.body_engine.available and \
+                    h >= bodymod.MIN_BODY_PX and h > w else None
+                if obs is not None:
+                    found, matches = "body", slog.by_photo(body=obs["feature"])
+        if found is None:
+            raise HTTPException(400, "No face or person could be found in that picture. Try one where they're larger.")
+        who = {g["group"]: g for g in slog.who("person")}
+        out = []
+        for m in matches:
+            if m["group"] in who:
+                out.append(dict(who[m["group"]], likeness=m["likeness"], by=m["by"]))
+        return {"found": found, "matches": out}
+
+    @app.put("/api/smart/log/groups/{grp}")
+    async def log_rename(grp: str, request: Request):
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        try:
+            return {"name": slog.rename_group(grp, (body or {}).get("name"))}
+        except KeyError:
+            raise HTTPException(404, "Not found")
+
+    @app.delete("/api/smart/log/groups/{grp}")
+    def log_forget_group(grp: str):
+        return {"deleted": slog.delete_group(grp)}
+
+    @app.delete("/api/smart/log/entries/{sid}")
+    def log_delete(sid: str):
+        if not slog.delete(sid):
+            raise HTTPException(404, "Not found")
+        return {"deleted": 1}
+
+    @app.delete("/api/smart/log")
+    def log_clear():
+        return {"deleted": slog.clear()}

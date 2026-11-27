@@ -2,3 +2,5 @@ pc/installer/*.cmd text eol=crlf
 pc/installer/*.iss text eol=crlf
 *.ico binary
 *.jar binary
+*.bmp binary
+*.png binary

@@ -6,6 +6,7 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
@@ -31,6 +32,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -109,15 +111,28 @@ class MainActivity : AppCompatActivity() {
         fun text(t: String, size: Float, color: String) = TextView(this).apply {
             text = t; textSize = size; setTextColor(Color.parseColor(color)); setPadding(0, 0, 0, pad / 2)
         }
-        box.addView(text("A.S.D Home Security", 26f, "#E8ECF1"))
+        val density = resources.displayMetrics.density
+        fun rounded(fill: String, stroke: String?) = GradientDrawable().apply {
+            setColor(Color.parseColor(fill))
+            cornerRadius = 14 * density
+            if (stroke != null) setStroke((1 * density).toInt(), Color.parseColor(stroke))
+        }
+        box.addView(ImageView(this).apply {
+            setImageResource(R.drawable.logo_mark)
+            contentDescription = null
+        }, LinearLayout.LayoutParams((64 * density).toInt(), (64 * density).toInt()).apply {
+            bottomMargin = pad / 2
+        })
+        box.addView(text("A.S.D", 30f, "#E9EEF7").apply { typeface = android.graphics.Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, 0) })
+        box.addView(text("HOME SECURITY", 12f, "#60A5FA").apply { letterSpacing = 0.25f })
         box.addView(text(
             "Enter the address of the PC running A.S.D Home Security. At home that's its local address, " +
                 "for example 192.168.1.20:8080. Away from home use the address you set up on your router.",
-            15f, "#95A0AE"
+            15f, "#8E9BB3"
         ))
         if (problem != null) box.addView(text(problem, 15f, "#FF6B6B"))
         if (prefs.paired) {
-            box.addView(text("This phone is set up for away from home, so it finds the PC by itself.", 15f, "#95A0AE"))
+            box.addView(text("This phone is set up for away from home, so it finds the PC by itself.", 15f, "#8E9BB3"))
             box.addView(Button(this).apply {
                 text = "Try again"
                 setOnClickListener { showWeb(null) }
@@ -128,12 +143,21 @@ class MainActivity : AppCompatActivity() {
             setText(prefs.homeAddress.removePrefix("http://"))
             inputType = InputType.TYPE_TEXT_VARIATION_URI or InputType.TYPE_CLASS_TEXT
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
+            setHintTextColor(Color.parseColor("#5B6781"))
             isSingleLine = true
+            background = rounded("#121A2B", "#26324A")
+            setPadding(pad * 2 / 3, pad / 2, pad * 2 / 3, pad / 2)
         }
-        box.addView(input)
+        box.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = pad / 2
+            bottomMargin = pad / 2
+        })
         box.addView(Button(this).apply {
             text = "Connect"
+            isAllCaps = false
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            background = rounded("#3B82F6", null)
             setOnClickListener {
                 val url = Prefs.normalise(input.text.toString())
                 if (!URLUtil.isValidUrl(url)) {

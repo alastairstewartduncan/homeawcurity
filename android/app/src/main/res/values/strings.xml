@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">A.S.D Home Security</string>
+    <string name="widget_description">Your camera\'s latest picture, home or away, and the last alert</string>
+    <string name="widget_picture">Latest camera picture. Tap to open the app.</string>
+    <string name="widget_loading">Getting the latest picture…</string>
+    <string name="widget_last_alert">Last alert</string>
+    <string name="widget_no_alerts">No alerts yet</string>
+    <string name="widget_refresh">Refresh the picture</string>
+    <string name="widget_open">Open live view</string>
 </resources>

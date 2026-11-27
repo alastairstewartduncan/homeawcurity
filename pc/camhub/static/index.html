@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B1020">
 <title>A.S.D Home Security</title>
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="/static/style.css">
@@ -14,19 +15,22 @@
 </head>
 <body>
 <header>
-  <h1><img src="/favicon.svg" width="22" height="22" alt=""> A.S.D Home Security</h1>
+  <a class="brand" href="/" aria-label="A.S.D Home Security">
+    <img src="/favicon.svg" width="32" height="32" alt="">
+    <span class="brand-text"><b>A.S.D</b><small>Home Security</small></span>
+  </a>
   <nav>
-    <button data-tab="live" class="active">Live</button>
-    <button data-tab="recordings">Recordings</button>
-    <button data-tab="smart">Smart</button>
-    <button data-tab="ai">AI</button>
-    <button data-tab="settings">Settings</button>
+    <button data-tab="live" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10.5 21 8v8l-5-2.5"/></svg><span>Live</span></button>
+    <button data-tab="recordings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M10 9v6l5-3z"/></svg><span>Recordings</span></button>
+    <button data-tab="smart"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.8 3.6-6 7-6s6.2 2.2 7 6"/></svg><span>Smart</span></button>
+    <button data-tab="ai"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>AI</span></button>
+    <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg><span>Settings</span></button>
   </nav>
   <div class="header-right">
     <button id="presence-pill" class="presence hidden" title="Home and away"></button>
     <span class="storage" id="storage"></span>
     <span class="storage version" id="version" title="A.S.D Home Security version. More in Settings > About."></span>
-    <button id="logout">Sign out</button>
+    <button id="logout" class="ghost" title="Sign out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 16l-4-4 4-4M6 12h10"/></svg><span>Sign out</span></button>
   </div>
 </header>
 

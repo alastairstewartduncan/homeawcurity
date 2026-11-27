@@ -31,6 +31,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 WizardStyle=modern
 SetupIconFile=homecamera.ico
+; The logo pictures down the side and in the corner of each page (normal and high-DPI screens).
+WizardImageFile=wizard-side.bmp,wizard-side-2x.bmp
+WizardSmallImageFile=wizard-small.bmp,wizard-small-2x.bmp
 UninstallDisplayIcon={app}\camhub.exe
 UninstallDisplayName={#AppName}
 OutputDir=output

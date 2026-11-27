@@ -16,6 +16,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -93,7 +94,9 @@ class MainActivity : AppCompatActivity() {
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime()
             )
             if (fullView == null) v.setPadding(bars.left, bars.top, bars.right, bars.bottom) else v.setPadding(0, 0, 0, 0)
-            insets
+            // Used up here: if the page were told about the bars as well, it would leave room for
+            // them twice (a gap above the header, and the tab labels cut off at the bottom).
+            WindowInsetsCompat.CONSUMED
         }
         // Light status bar and gesture bar icons on the dark background.
         WindowInsetsControllerCompat(window, root).apply {
@@ -294,6 +297,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val w = WebView(this)
+        // The app already keeps the page clear of the system bars (see onCreate).
+        ViewCompat.setOnApplyWindowInsetsListener(w) { _, _ -> WindowInsetsCompat.CONSUMED }
         web = w
         w.setBackgroundColor(Color.parseColor("#0B1020"))
         w.settings.apply {
@@ -686,6 +691,20 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun appVersion(): String = BuildConfig.VERSION_NAME
+
+        /** A light tap you can feel, for buttons and tabs (follows the phone's touch vibration setting). */
+        @JavascriptInterface
+        fun haptic(kind: String) {
+            runOnUiThread {
+                web?.performHapticFeedback(
+                    when (kind) {
+                        "long" -> HapticFeedbackConstants.LONG_PRESS
+                        "confirm" -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
+                        else -> HapticFeedbackConstants.VIRTUAL_KEY
+                    }
+                )
+            }
+        }
 
         /** For Settings > Updates: {"version", "code", "can_install", "problem"}. */
         @JavascriptInterface

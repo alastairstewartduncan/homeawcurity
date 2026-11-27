@@ -20,6 +20,8 @@ Everything runs on this PC, on the pictures the recorder already looks at.
   days, unless you choose otherwise) is a "returning stranger", with their visits side by side.
 - Your property: draw it per camera, and bodies and visitors are only learnt from people
   standing on it. People in privacy areas or ignore zones are never used.
+- Sightings log (sightings.py): every person and number plate (plates.py) seen on your
+  property, with the best picture and the clip, to search later. Needs the property drawn.
 
 Events published (all carry smart: true, camera, camera_name, time, title, message, picture):
   stranger, returning_stranger (stranger: true, visitor, visits), known_person (recognised_by
@@ -44,7 +46,9 @@ import numpy as np
 
 from . import bodies as bodymod
 from . import faces as facemod
+from . import plates as platemod
 from . import privacy
+from . import sightings as logmod
 from . import visitors as visitmod
 
 log = logging.getLogger("camhub.smart")
@@ -75,15 +79,19 @@ DEFAULT_SMART = {
         "forget_days": 30,            # visitors not seen for this long are forgotten
         "strictness": "normal",
     },
+    "log": dict(logmod.DEFAULT_LOG),  # log people and number plates seen on your property
     "cameras": {},                    # camera id -> {"parcel", "lines", "areas", "property"}
 }
 DEFAULT_CAMERA_SMART = {"parcel": {"enabled": False, "area": []}, "lines": [], "areas": [], "property": []}
-SECTIONS = ("faces", "vehicles", "parcels", "bodies", "visitors")
+SECTIONS = ("faces", "vehicles", "parcels", "bodies", "visitors", "log")
 
 VISIT_GAP = 30          # seconds without a person before a visit is over
 LOOK_EVERY = 1.5        # seconds between face checks during a visit
 TRACK_MEMORY = 15       # keep looking for people this long after the last one was seen
 WHAT = ("person", "vehicle", "both")
+PLATE_TRIES = 5         # looks at a stopped vehicle's number plate, until one is clear
+PLATE_RETRY = 2.0       # seconds between them
+PLATE_CLEAR = 0.8       # a reading this sure needs no more looks
 
 
 # ---- settings --------------------------------------------------------------------------
@@ -202,6 +210,8 @@ def clean_settings(body, current):
             if k in vi:
                 out["visitors"][k] = int(_num(vi[k], lo, hi, d, int))
         out["visitors"]["forget_days"] = max(out["visitors"]["forget_days"], out["visitors"]["days"])
+    if isinstance(body.get("log"), dict):
+        out["log"] = logmod.clean_settings(body["log"], out.get("log"))
     return out
 
 
@@ -541,7 +551,7 @@ class CameraWatcher:
                 self.was_turning = True
                 return
             self.was_turning = False
-            on = bool(self.hub.settings["vehicles"]["enabled"])
+            on = bool(self.hub.settings["vehicles"]["enabled"]) or self.hub.log_plates_on()
             if on and not self._vehicles_on:
                 self.survey = 3
             self._vehicles_on = on
@@ -637,6 +647,11 @@ class CameraWatcher:
                 return False
         return True
 
+    def _may_log(self, box, rules):
+        """The sightings log is stricter: only on your property once you've drawn it, so
+        nobody passing in the street is logged."""
+        return bool(rules.get("property")) and self._may_learn(box, rules)
+
     def _visit_seen(self, frame, now, people, rules):
         if not self.hub.faces_on():
             return
@@ -649,6 +664,7 @@ class CameraWatcher:
                               "next_look": now, "known": {}, "unknown": 0, "faces": 0, "best": None,
                               "decided": False, "stranger_sent": False, "frame": None, "boxes": [],
                               "tracks": {}, "on_property": set(), "clip": None, "returning": None,
+                              "loggable": set(), "when": datetime.datetime.now().isoformat(timespec="seconds"),
                               "key": f"{self.id}:{datetime.datetime.now():%Y%m%d%H%M%S}:{self._visits}"}
         v["last"] = now
         clip = getattr(self.cam, "clip", None)
@@ -658,6 +674,7 @@ class CameraWatcher:
         if now < v["next_look"]:
             return
         heights = self.hub.heights_for(self.id)
+        logging_on = self.hub.log_people_on()
         looks = []
         for o in people:
             t = self.tracker.track_of(o["box"])
@@ -666,6 +683,8 @@ class CameraWatcher:
             if ok:
                 heights.add(o["box"])
                 v["on_property"].add(tid)
+            if logging_on and self._may_log(o["box"], rules):
+                v["loggable"].add(tid)
             looks.append({"box": o["box"], "track": tid, "body": ok,
                           "pace": t.get("pace") if t else None,
                           "height": heights.ratio(o["box"]) if ok else None})
@@ -691,6 +710,8 @@ class CameraWatcher:
                 tr = self._vtrack(v, f.get("track"))
                 v["faces"] += 1
                 person, likeness = store.match_face(f["feature"], threshold)
+                if f["score"] >= 0.85 and (tr["face"] is None or f["size"] > tr["face"]["size"]):
+                    tr["face"] = f      # the best picture of their face, for the sightings log
                 if person is not None:
                     tr["known"], tr["by"], tr["person_id"] = person["name"], "face", person["id"]
                     first = person["name"] not in v["known"]
@@ -704,8 +725,6 @@ class CameraWatcher:
                 tr["unknown_faces"] += 1
                 if len(tr["faces"]) < 4:
                     tr["faces"].append(f["feature"])
-                if tr["face"] is None or f["size"] > tr["face"]["size"]:
-                    tr["face"] = f
                 if tr["by"] == "body" and tr["unknown_faces"] >= 2:
                     tr["known"] = tr["by"] = tr["person_id"] = None  # a clear face says it's someone else
                 if v["best"] is None or f["size"] > v["best"]["size"]:
@@ -715,6 +734,9 @@ class CameraWatcher:
                     continue
                 tr = self._vtrack(v, tid)
                 tr["bodies"] = (tr["bodies"] + [obs])[-6:]
+                if obs.get("feature") is None:
+                    obs["learnt"] = True    # only a picture (for the log): nothing to learn or match
+                    continue
                 self._body_check(v, tr, obs, picture)
             for tr in v["tracks"].values():
                 self._learn(tr)
@@ -782,7 +804,7 @@ class CameraWatcher:
             if not tr["faces"] and not bodies:
                 continue
             big = max(bodies, key=lambda b: len(b.get("crop") or b""), default=None)
-            out.append({"faces": list(tr["faces"]), "bodies": bodies,
+            out.append({"track": tid, "faces": list(tr["faces"]), "bodies": bodies,
                         "face_crop": tr["face"]["crop"] if tr["face"] else None,
                         "body_crop": big.get("crop") if big else None,
                         "camera": self.id, "camera_name": self.name, "clip": v["clip"]})
@@ -812,17 +834,45 @@ class CameraWatcher:
         v, self.visit = self.visit, None
         if v is None:
             return
+        visitors = {}
         if self.hub.visitors_on():
             vs = self.hub.settings["visitors"]
             for s in self._sightings(v):
                 try:
-                    self.hub.visitors.record(s, vs["strictness"], v["key"])
+                    vis, _ = self.hub.visitors.record(s, vs["strictness"], v["key"])
+                    visitors[s["track"]] = vis
                 except OSError:
                     log.exception("Could not remember a visitor")
+        if self.hub.log_people_on():
+            self._log_people(v, visitors)
         self.hub.visit_ended(self.id)
         if v.get("saved") or v["best"] is None:
             return
         self._save_face(v)
+
+    def _log_people(self, v, visitors):
+        """One sightings log entry for each person in the visit who stood on your property."""
+        for tid, tr in v["tracks"].items():
+            if tid not in v["loggable"]:
+                continue
+            face = tr["face"]
+            shots = [b for b in tr["bodies"] if b.get("crop")]
+            big = max(shots, key=lambda b: len(b["crop"]), default=None)
+            feats = [b for b in shots if b.get("feature") is not None]
+            body = max(feats, key=lambda b: len(b["crop"]), default=None)
+            if face is None and big is None:
+                continue
+            vis = visitors.get(tid)
+            s = {"time": v["when"], "camera": self.id, "camera_name": self.name, "clip": v["clip"],
+                 "visit": v["key"], "person_id": tr["person_id"] if tr["known"] else None,
+                 "person_name": tr["known"], "by": tr["by"],
+                 "visitor_id": vis["id"] if vis else None,
+                 "visitor_label": (vis.get("label") or None) if vis else None,
+                 "face": face["feature"] if face else None, "face_crop": face["crop"] if face else None,
+                 "face_size": face["size"] if face else 0,
+                 "body": body["feature"] if body else None, "body_crop": big["crop"] if big else None,
+                 "clothes": body.get("clothes") if body else None, "night": bool(body.get("night")) if body else False}
+            self.hub.log.submit(self.hub.log.add_person, s)
 
     def _save_face(self, v):
         b = v["best"]
@@ -884,6 +934,9 @@ class CameraWatcher:
             if p is not None:
                 p["last"], p["misses"] = now, 0
                 matched.add(id(p))
+                lg = p.get("log")
+                if lg and not lg["read"] and lg["tries"] < PLATE_TRIES and now >= lg["next"]:
+                    self._read_plate(lg, frame, box, now)
                 continue
             c = next((c for c in self.candidates if iou(c["box"], box) >= 0.3), None)
             if c is None:
@@ -909,12 +962,17 @@ class CameraWatcher:
 
     def _vehicle_stopped(self, frame, now, box):
         sig = facemod.vehicle_signature(frame, box)
-        self.parked.append({"box": box, "sig": sig, "last": now, "misses": 0})
+        parked = {"box": box, "sig": sig, "last": now, "misses": 0}
+        self.parked.append(parked)
         for d in self.departed:
             if now - d["time"] < 900 and iou(d["box"], box) >= 0.3 and facemod.vehicle_likeness(d["sig"], sig) >= 0.8:
                 return  # the same vehicle, lost for a moment
         vs = self.hub.settings["vehicles"]
         car, likeness = self.hub.store.match_car(sig, facemod.CAR_MATCH[vs["strictness"]])
+        if self.hub.log_plates_on() and self._may_log(box, self.rules):
+            parked["log"] = self._log_vehicle(frame, now, box, car)
+        if not vs["enabled"]:
+            return      # only logging number plates, not alerting
         crop = facemod.box_crop(frame, box)
         picture = draw(frame, boxes=[box])
         if car is not None:
@@ -928,6 +986,25 @@ class CameraWatcher:
         self.hub.publish(self, "vehicle", f"{self.name}: unknown vehicle",
                          "A vehicle you haven't marked as yours has stopped. Tap to watch.", picture,
                          {"known": False})
+
+    def _log_vehicle(self, frame, now, box, car):
+        """A sightings log entry for a vehicle that stopped on your property; its number plate
+        is read in the background, a few times until it's clear."""
+        lg = {"id": facemod.new_id("s_"), "read": False, "tries": 0, "next": now}
+        clip = getattr(self.cam, "clip", None)
+        s = {"id": lg["id"], "time": datetime.datetime.now().isoformat(timespec="seconds"), "camera": self.id,
+             "camera_name": self.name, "clip": clip.clip_id if clip is not None else None,
+             "crop": facemod.box_crop(frame, box, max_side=480),
+             "car_id": car["id"] if car else None, "car_name": car["name"] if car else None}
+        self.hub.log.submit(self.hub.log.add_vehicle, s)
+        self._read_plate(lg, frame, box, now)
+        return lg
+
+    def _read_plate(self, lg, frame, box, now):
+        lg["tries"] += 1
+        lg["next"] = now + PLATE_RETRY
+        if self.hub.plates.available:
+            self.hub.log.submit(self.hub.read_plate, self, lg, frame, box)
 
     # ---- lines, areas and parcels ----
 
@@ -1009,7 +1086,7 @@ def draw(frame, boxes=(), line=None, area=None, max_w=1280):
 class SmartHub:
     ACTIVITY_KEEP = 150
 
-    def __init__(self, hub, engine=None, start_worker=True, body_engine=None):
+    def __init__(self, hub, engine=None, start_worker=True, body_engine=None, plate_reader=None):
         self.hub = hub
         self.config = hub.config
         self.events = hub.events
@@ -1018,6 +1095,8 @@ class SmartHub:
         self.engine = engine if engine is not None else facemod.FaceEngine()
         self.body_engine = body_engine if body_engine is not None else bodymod.BodyEngine()
         self.visitors = visitmod.VisitorStore(folder, self.store)
+        self.plates = plate_reader if plate_reader is not None else platemod.PlateReader()
+        self.log = logmod.SightingLog(folder, self.store, threaded=start_worker)
         self._heights_path = os.path.join(folder, "heights.json")
         self.heights = {}
         try:
@@ -1048,6 +1127,7 @@ class SmartHub:
         cams = cur.get("cameras") if isinstance(cur.get("cameras"), dict) else {}
         merged["cameras"] = {str(k): clean_camera(v) for k, v in cams.items()}
         self.config.data["smart"] = merged
+        self.log.days = merged["log"]["days"]
 
     @property
     def settings(self):
@@ -1061,6 +1141,9 @@ class SmartHub:
             new = clean_settings(body, self.settings)
             self.config.data["smart"] = new
             self.config.save()
+            if new["log"]["days"] < self.log.days:
+                self.log.submit(self.log.tidy, new["log"]["days"])
+            self.log.days = new["log"]["days"]
             return new
 
     def update_camera(self, cam_id, body):
@@ -1080,6 +1163,38 @@ class SmartHub:
 
     def visitors_on(self):
         return self.faces_on() and bool(self.settings["visitors"]["enabled"])
+
+    def log_people_on(self):
+        """Logging people seen. Builds on face recognition, which follows each visit."""
+        return self.faces_on() and bool(self.settings["log"]["people"])
+
+    def log_plates_on(self):
+        return bool(self.settings["log"]["plates"])
+
+    def read_plate(self, watcher, lg, frame, box):
+        """Reads a stopped vehicle's number plate from a full quality picture (background job)."""
+        img = watcher.cam.hires_frame() if hasattr(watcher.cam, "hires_frame") else None
+        if img is None:
+            img = frame
+        H, W = img.shape[:2]
+        x1, y1, x2, y2 = box
+        pw, ph = (x2 - x1) * 0.1, (y2 - y1) * 0.1
+        a, b = int(max(0.0, x1 - pw) * W), int(max(0.0, y1 - ph) * H)
+        c, d = int(min(1.0, x2 + pw) * W), int(min(1.0, y2 + ph) * H)
+        if c - a < 32 or d - b < 32:
+            return
+        crop = img[b:d, a:c]
+        found = self.plates.read(crop)
+        if not found:
+            return
+        px1, py1, px2, py2 = (int(v) for v in found["box"])
+        mx, my = int((px2 - px1) * 0.15), int((py2 - py1) * 0.4)
+        plate_img = crop[max(0, py1 - my):py2 + my, max(0, px1 - mx):px2 + mx]
+        cars = [c for c in self.store.public()["cars"] if c.get("plate")]
+        self.log.set_plate(lg["id"], found["plate"], found["sure"],
+                           facemod.jpeg(plate_img, 90) if plate_img.size else None, cars)
+        if found["sure"] >= PLATE_CLEAR:
+            lg["read"] = True
 
     # ---- heights and tidying ----
 
@@ -1199,11 +1314,18 @@ class SmartHub:
         H, W = img.shape[:2]
         found = []
         bodies = []
-        want_bodies = (self.bodies_on() or self.visitors_on()) and self.body_engine.available
+        logging_on = self.log_people_on()
+        want_bodies = (self.bodies_on() or self.visitors_on() or logging_on) and self.body_engine.available
         for lk in looks:
             x1, y1, x2, y2 = lk["box"]
-            if want_bodies and lk.get("body"):
-                obs = self.body_engine.describe(img, lk["box"])
+            if lk.get("body") and (want_bodies or logging_on):
+                obs = self.body_engine.describe(img, lk["box"]) if want_bodies else None
+                if obs is None and logging_on:
+                    # No body model (or too small to describe): still keep a picture for the log.
+                    crop = bodymod.person_crop(img, lk["box"])
+                    if crop is not None:
+                        obs = {"feature": None, "clothes": None, "night": facemod.is_night(crop),
+                               "crop": bodymod.small_jpeg(crop)}
                 if obs is not None:
                     obs["height"], obs["pace"] = lk.get("height"), lk.get("pace")
                     bodies.append((lk.get("track"), obs))
@@ -1270,6 +1392,8 @@ class SmartHub:
             "faces_available": self.engine.available,
             "bodies_available": self.body_engine.available,
             "visitors": self.visitors.public(self.settings["visitors"]["days"]),
+            "plates_available": self.plates.available,
+            "log_stats": self.log.stats(),
             "detector_available": bool(getattr(self.hub.detector, "available", False)),
             "cameras": cams,
             **self.store.public(),

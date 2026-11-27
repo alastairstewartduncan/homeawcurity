@@ -56,6 +56,7 @@ function showTab(name) {
   if (name === 'settings') loadSettings();
   if (name === 'ai' && window.loadAi) window.loadAi();
   if (name === 'smart' && window.loadSmart) window.loadSmart();
+  if (name === 'seen' && window.loadSightings) window.loadSightings();
 }
 $$('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 $('#logout').addEventListener('click', async () => {

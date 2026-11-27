@@ -83,10 +83,13 @@ foreach ($f in @("deploy.prototxt", "mobilenet_iter_73000.caffemodel")) {
 }
 # Face recognition (Smart tab): finding faces, and telling family from strangers.
 # Body recognition: knowing family from behind by build, height and clothes.
+# Number plates (Who's been log): finding writing on a vehicle, and reading it.
 $zoo = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
 foreach ($f in @("face_detection_yunet/face_detection_yunet_2023mar.onnx",
                  "face_recognition_sface/face_recognition_sface_2021dec.onnx",
-                 "person_reid_youtureid/person_reid_youtu_2021nov_int8bq.onnx")) {
+                 "person_reid_youtureid/person_reid_youtu_2021nov_int8bq.onnx",
+                 "text_detection_ppocr/text_detection_en_ppocrv3_2023may.onnx",
+                 "text_recognition_crnn/text_recognition_CRNN_EN_2022oct_int8.onnx")) {
     $dest = Join-Path $models (Split-Path $f -Leaf)
     if (-not (Test-Path $dest)) { Invoke-WebRequest "$zoo/$f" -OutFile $dest -UseBasicParsing }
 }

@@ -51,7 +51,10 @@ You need Windows 10 or 11 (64-bit). The PC should stay switched on.
      finds, including the pan and tilt (ONVIF) details. Leave the IP empty to do this later.
    - **Where to keep recordings**: default `C:\CameraRecordings`.
 3. Done. Open **A.S.D Home Security** from the desktop or Start menu. It starts by itself with Windows,
-   even before anyone signs in.
+   even before anyone signs in, and records in the background with no window open.
+   When you sign in, its logo appears in the system tray by the clock: click it to open the
+   window, or right-click for **Open**, **Restart recorder** and **Quit**. Closing the window
+   (or choosing Quit) doesn't stop recording.
 
 **To add a camera or change its IP address or login later**, open A.S.D Home Security, go to
 **Settings > Cameras**, fill in the details and press **Find and save**. It searches the camera
